@@ -10,14 +10,16 @@ import (
 )
 
 // flyGraceTicks is the base number of consecutive airborne ticks that are
-// always exempted from the fly check. This covers the full natural jump arc:
-// - Bedrock jump peak is around tick 5-6 (Y velocity ~0.02 b/tick at apex).
-// - After the peak the player falls with growing negative Y velocity.
-// - A normal ground-level jump lasts ~12 ticks; 20 ticks is well clear.
+// always exempted from the fly check. This covers the natural jump arc without
+// being overly permissive:
+//   - Bedrock jump peak is around tick 5-6 (Y velocity ~0.02 b/tick at apex).
+//   - A normal ground-level jump lasts ~12 ticks total.
+//   - 8 ticks covers the ascending phase where Y velocity transitions from
+//     positive to near-zero; beyond this the player should be falling, not hovering.
 //
-// This mirrors Oomph's simulationIsReliable() which refuses to issue
-// corrections for the first several ticks after a state change.
-const flyGraceTicks = 20
+// Reduced from 20 to 8 to match Oomph's tighter simulationIsReliable() window
+// and flag fly hacks that hover during the early airborne phase.
+const flyGraceTicks = 8
 
 // flyJumpBoostGracePerLevel is the additional grace ticks granted per level of
 // the JumpBoost effect. JumpBoost I extends the jump arc by roughly 5 ticks;
@@ -28,8 +30,9 @@ const flyJumpBoostGracePerLevel = 5
 
 // flyMinHoverTicks is the minimum number of consecutive ticks with near-zero
 // Y displacement that must be observed (after the grace period) before flagging.
-// This prevents a single anomalous packet from causing a false positive.
-const flyMinHoverTicks = 5
+// Reduced from 5 to 3: once the grace period has passed the player should be
+// falling at a clearly measurable rate; 3 ticks of hover is already anomalous.
+const flyMinHoverTicks = 3
 
 // FlyCheck detects players that hover in mid-air without falling.
 // It tracks two counters updated by data.Player.UpdatePosition:

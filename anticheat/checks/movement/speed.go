@@ -67,6 +67,12 @@ func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
 	if p.IsCreative() {
 		return false, ""
 	}
+	// Exempt players that just received server-applied velocity (knockback,
+	// explosions, wind charges, etc.). The resulting speed spike is legitimate
+	// and would otherwise trigger Speed/A for several ticks.
+	if p.HasKnockbackGrace() {
+		return false, ""
+	}
 	// Only check on-ground movement.  Aerial speed is complex (knockback,
 	// terrain slopes, jump arcs) and is handled by Fly/A.
 	if !p.IsOnGround() {

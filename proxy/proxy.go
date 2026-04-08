@@ -294,6 +294,28 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 					}
 				}
 			}
+
+		case *packet.SetActorMotion:
+			// The server applied an external velocity to an entity (knockback from
+			// damage, explosions, wind charges, launch pads, etc.).
+			// If the packet targets the player's own entity, the resulting velocity
+			// spike is legitimate: record a knockback grace window so that Speed/A
+			// and Speed/B do not flag for the next several ticks.
+			if typed.EntityRuntimeID == sess.EntityRID {
+				if pl := p.ac.GetPlayer(sess.ID); pl != nil {
+					pl.RecordKnockback()
+				}
+			}
+
+		case *packet.MotionPredictionHints:
+			// Vanilla may use MotionPredictionHints instead of SetActorMotion when
+			// spatial optimisations are enabled; treat it identically for knockback
+			// grace purposes.
+			if typed.EntityRuntimeID == sess.EntityRID {
+				if pl := p.ac.GetPlayer(sess.ID); pl != nil {
+					pl.RecordKnockback()
+				}
+			}
 		}
 
 		if err := sess.Client.WritePacket(pk); err != nil {

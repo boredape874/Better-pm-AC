@@ -22,6 +22,13 @@ const hoverDeltaThreshold = float32(0.005)
 // a body of water and lands on ground within half a second (~10 ticks at 20 TPS).
 const waterExitGraceTicks = 10
 
+// knockbackGraceTicks is the number of ticks after the server sends a
+// SetActorMotion or MotionPredictionHints packet targeting the player (i.e.
+// the server applies knockback, an explosion, a wind charge, etc.) during which
+// Speed/A and Speed/B do not flag. Knockback can legitimately produce a
+// horizontal velocity spike for several ticks that would otherwise be flagged.
+const knockbackGraceTicks = 6
+
 // noFallBSpeedThreshold is the minimum downward Y displacement (blocks/tick)
 // that triggers GroundFallTicks accumulation. If a player claims OnGround=true
 // while their Y position delta exceeds this threshold downward, it is counted
@@ -115,6 +122,12 @@ type Player struct {
 	// not falsely flagged (the fall distance counter accumulated while in the
 	// water is not meaningful for damage purposes).
 	waterExitGrace int
+
+	// knockbackGrace counts down (ticks) after the server sends SetActorMotion
+	// or MotionPredictionHints for the player (knockback, explosions, etc.).
+	// Speed/A and Speed/B skip their checks while this is positive because the
+	// server-applied velocity can legitimately exceed normal sprint speed.
+	knockbackGrace int
 
 	// Combat
 	LastSwingTick    uint64
@@ -278,6 +291,10 @@ func (p *Player) UpdatePosition(pos mgl32.Vec3, onGround bool) {
 	// automatically after waterExitGraceTicks ticks regardless of landing.
 	if p.waterExitGrace > 0 {
 		p.waterExitGrace--
+	}
+	// Decrement the knockback grace counter each tick.
+	if p.knockbackGrace > 0 {
+		p.knockbackGrace--
 	}
 
 	if onGround {
@@ -508,6 +525,26 @@ func (p *Player) StopGliding() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.Gliding = false
+}
+
+// RecordKnockback sets the knockback grace window. Called when the server
+// sends a SetActorMotion or MotionPredictionHints packet targeting the player's
+// own entity runtime ID, indicating the server has applied an external velocity
+// (knockback from damage, explosion, wind charge, etc.).
+// Speed/A and Speed/B will not flag for knockbackGraceTicks ticks after this.
+func (p *Player) RecordKnockback() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.knockbackGrace = knockbackGraceTicks
+}
+
+// HasKnockbackGrace returns true while the knockback grace window is active.
+// Speed/A and Speed/B skip their checks during this window to avoid false
+// positives from server-applied velocity spikes.
+func (p *Player) HasKnockbackGrace() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.knockbackGrace > 0
 }
 
 // HasRecentWaterExit returns true when the player has left water within the

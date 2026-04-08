@@ -177,8 +177,8 @@ func Default() Config {
 			RemoteAddr: "127.0.0.1:19133",
 		},
 		Anticheat: AnticheatConfig{
-			Speed:        SpeedConfig{Enabled: true, MaxSpeed: 0.7, Violations: 10},
-			SpeedB:       SpeedBConfig{Enabled: true, MaxSpeed: 0.7, Violations: 10},
+			Speed:        SpeedConfig{Enabled: true, MaxSpeed: 0.4, Violations: 10},
+			SpeedB:       SpeedBConfig{Enabled: true, MaxSpeed: 0.4, Violations: 10},
 			Fly:          FlyConfig{Enabled: true, Violations: 5},
 			NoFall:       NoFallConfig{Enabled: true, Violations: 5},
 			NoFallB:      NoFallBConfig{Enabled: true, Violations: 5},
@@ -195,7 +195,7 @@ func Default() Config {
 			BadPacketB:   BadPacketBConfig{Enabled: true, Violations: 1},
 			BadPacketC:   BadPacketCConfig{Enabled: true, Violations: 1},
 			BadPacketD:   BadPacketDConfig{Enabled: true, Violations: 1},
-			Timer:        TimerConfig{Enabled: true, MaxRatePS: 25, Violations: 5},
+			Timer:        TimerConfig{Enabled: true, MaxRatePS: 22, Violations: 5},
 		},
 	}
 }

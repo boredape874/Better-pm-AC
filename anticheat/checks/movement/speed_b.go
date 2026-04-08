@@ -18,10 +18,10 @@ import (
 const speedBAirMultiplier = float32(1.10)
 
 // speedBGraceTicks is the number of airborne ticks to skip before applying the
-// aerial speed check. This matches flyGraceTicks so that the natural jump arc is
-// not penalised during initial lift-off where vertical momentum can translate to
-// a brief horizontal boost.
-const speedBGraceTicks = 5
+// aerial speed check. 3 ticks is sufficient to absorb the initial jump frame
+// without giving fly-speed hacks a free window. Oomph uses a similarly short
+// grace before its aerial speed validation engages.
+const speedBGraceTicks = 3
 
 // SpeedBCheck detects players that maintain or increase horizontal velocity
 // while airborne beyond what vanilla physics permit.
@@ -65,6 +65,10 @@ func (c *SpeedBCheck) Check(p *data.Player) (bool, string) {
 		return false, ""
 	}
 	if p.IsCreative() || p.IsGliding() {
+		return false, ""
+	}
+	// Exempt players under knockback (same reason as Speed/A).
+	if p.HasKnockbackGrace() {
 		return false, ""
 	}
 	_, _, inWater := p.InputSnapshot()
