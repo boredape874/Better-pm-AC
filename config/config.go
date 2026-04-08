@@ -43,6 +43,7 @@ type AnticheatConfig struct {
 	BadPacketC   BadPacketCConfig   `toml:"badpacket_c"`
 	BadPacketD   BadPacketDConfig   `toml:"badpacket_d"`
 	Timer        TimerConfig        `toml:"timer"`
+	Velocity     VelocityConfig     `toml:"velocity"`
 }
 
 // SpeedConfig configures the Speed/A check.
@@ -159,7 +160,11 @@ type BadPacketDConfig struct {
 	Violations int  `toml:"violations"`
 }
 
-// TimerConfig configures the Timer/A check.
+// VelocityConfig configures the Velocity/A check (Anti-KB detection).
+type VelocityConfig struct {
+	Enabled    bool `toml:"enabled"`
+	Violations int  `toml:"violations"`
+}
 // MaxRatePS is the maximum number of PlayerAuthInput packets allowed per second.
 // At 20 TPS the expected rate is exactly 20; 25 gives a 25% tolerance for
 // server-side jitter while reliably catching Timer hacks (≥ 1.25×).
@@ -196,6 +201,7 @@ func Default() Config {
 			BadPacketC:   BadPacketCConfig{Enabled: true, Violations: 1},
 			BadPacketD:   BadPacketDConfig{Enabled: true, Violations: 1},
 			Timer:        TimerConfig{Enabled: true, MaxRatePS: 22, Violations: 5},
+			Velocity:     VelocityConfig{Enabled: true, Violations: 5},
 		},
 	}
 }

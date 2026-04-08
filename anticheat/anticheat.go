@@ -43,6 +43,7 @@ type playerDetections struct {
 	badPacketC   *DetectionMetadata
 	badPacketD   *DetectionMetadata
 	timer        *DetectionMetadata
+	velocity     *DetectionMetadata
 }
 
 // Manager coordinates all anti-cheat checks and the player registry.
@@ -74,6 +75,7 @@ type Manager struct {
 	badPacketC   *pkt.BadPacketCCheck
 	badPacketD   *pkt.BadPacketDCheck
 	timer        *movement.TimerCheck
+	velocity     *movement.VelocityCheck
 
 	// KickFunc is called when a player should be disconnected.
 	KickFunc func(id uuid.UUID, reason string)
@@ -105,6 +107,7 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		badPacketC:   pkt.NewBadPacketCCheck(cfg.BadPacketC),
 		badPacketD:   pkt.NewBadPacketDCheck(cfg.BadPacketD),
 		timer:        movement.NewTimerCheck(cfg.Timer),
+		velocity:     movement.NewVelocityCheck(cfg.Velocity),
 	}
 }
 
@@ -129,6 +132,7 @@ func (m *Manager) newPlayerDetections() *playerDetections {
 		badPacketC:   m.badPacketC.DefaultMetadata(),
 		badPacketD:   m.badPacketD.DefaultMetadata(),
 		timer:        m.timer.DefaultMetadata(),
+		velocity:     m.velocity.DefaultMetadata(),
 	}
 }
 
@@ -256,6 +260,25 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 	// skip position-based movement checks for this tick to avoid a false-positive
 	// velocity spike from the position discontinuity.
 	teleportGrace := p.ConsumeTeleportGrace()
+
+	// Velocity/A (Anti-KB): consume any pending knockback snapshot recorded when
+	// the server sent SetActorMotion / MotionPredictionHints and check whether the
+	// player's current positional delta reflects the applied impulse. This runs
+	// after UpdatePosition so that p.PositionDelta() reflects the current tick.
+	// We only run the check when there is no active knockback grace window; the
+	// first tick after the grace expires is when Anti-KB cheats become visible
+	// because the player should still be carrying residual horizontal velocity.
+	if !p.HasKnockbackGrace() {
+		if kb := p.KnockbackSnapshot(); kb.Len() >= movement.VelocityAMinKB {
+			if flagged, info := m.velocity.Check(p, kb); flagged {
+				if det.velocity.Fail(int64(tick)) {
+					m.handleViolation(p, m.velocity, det.velocity, info)
+				}
+			} else {
+				det.velocity.Pass(1.0)
+			}
+		}
+	}
 
 	// Speed/A — skip if teleporting or in creative mode.
 	if !teleportGrace {

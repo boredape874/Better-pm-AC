@@ -129,6 +129,13 @@ type Player struct {
 	// server-applied velocity can legitimately exceed normal sprint speed.
 	knockbackGrace int
 
+	// pendingKnockback stores the horizontal (XZ) velocity vector of the most
+	// recent SetActorMotion or MotionPredictionHints packet sent by the server.
+	// Velocity/A reads this to verify the player actually absorbed the knockback;
+	// an Anti-KB cheat suppresses the applied velocity so the player barely moves
+	// in the knockback direction. Reset to zero once the check has consumed it.
+	pendingKnockback mgl32.Vec2 // XZ components only; Y is absorbed by gravity
+
 	// Combat
 	LastSwingTick    uint64
 	ClickTimestamps  []time.Time
@@ -545,15 +552,31 @@ func (p *Player) StopGliding() {
 	p.Gliding = false
 }
 
-// RecordKnockback sets the knockback grace window. Called when the server
+// RecordKnockback sets the knockback grace window and stores the applied
+// horizontal velocity for Velocity/A (Anti-KB) detection. Called when the server
 // sends a SetActorMotion or MotionPredictionHints packet targeting the player's
 // own entity runtime ID, indicating the server has applied an external velocity
 // (knockback from damage, explosion, wind charge, etc.).
 // Speed/A and Speed/B will not flag for knockbackGraceTicks ticks after this.
-func (p *Player) RecordKnockback() {
+// vel is the full 3-D velocity from the packet; only the XZ components are
+// stored because the Y component is absorbed by gravity within one tick and
+// is not a reliable indicator of Anti-KB behaviour.
+func (p *Player) RecordKnockback(vel mgl32.Vec3) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.knockbackGrace = knockbackGraceTicks
+	p.pendingKnockback = mgl32.Vec2{vel[0], vel[2]}
+}
+
+// KnockbackSnapshot returns the pending knockback horizontal velocity and clears
+// it so the check does not re-trigger on subsequent ticks.
+// A zero vector is returned if no knockback is pending.
+func (p *Player) KnockbackSnapshot() mgl32.Vec2 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	kb := p.pendingKnockback
+	p.pendingKnockback = mgl32.Vec2{}
+	return kb
 }
 
 // HasKnockbackGrace returns true while the knockback grace window is active.

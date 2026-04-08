@@ -137,22 +137,27 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 			// Extract per-tick input state flags that affect check behaviour.
 			sprinting := typed.InputData.Load(packet.InputFlagSprinting)
 			sneaking := typed.InputData.Load(packet.InputFlagSneaking)
-			// InputFlagAutoJumpingInWater is set when the player's auto-jump
-			// is triggered by water, indicating they are submerged. Combined
-			// with the Swimming flags it gives a reliable in-water signal.
-			inWater := typed.InputData.Load(packet.InputFlagAutoJumpingInWater) ||
-				typed.InputData.Load(packet.InputFlagStartSwimming)
-			stoppedSwimming := typed.InputData.Load(packet.InputFlagStopSwimming)
+
+			// Maintain sticky inWater state for the session. The Bedrock protocol
+			// only sends InputFlagStartSwimming once on swim entry and
+			// InputFlagAutoJumpingInWater only on auto-jump; there is no continuous
+			// "currently swimming" flag. We therefore keep a persistent bool in
+			// sess.inWater and toggle it based on the start/stop events so that
+			// SetInputFlags receives the correct value on every tick, not just the
+			// entry tick. This fixes a bug where water exemptions (Fly/A, NoFall/A,
+			// Speed/A/B) were only active for one tick per swim session.
+			if typed.InputData.Load(packet.InputFlagStartSwimming) ||
+				typed.InputData.Load(packet.InputFlagAutoJumpingInWater) {
+				sess.inWater = true
+			}
+			if typed.InputData.Load(packet.InputFlagStopSwimming) {
+				sess.inWater = false
+			}
 
 			// Apply input state to player data so checks can read it.
 			if pl := p.ac.GetPlayer(sess.ID); pl != nil {
 				pl.SetLatency(sess.Client.Latency())
-				pl.SetInputFlags(sprinting, sneaking, inWater)
-				// When the client signals it has stopped swimming, ensure the
-				// water flag is cleared so the water-exit grace fires correctly.
-				if stoppedSwimming {
-					pl.SetInputFlags(sprinting, sneaking, false)
-				}
+				pl.SetInputFlags(sprinting, sneaking, sess.inWater)
 
 				// Track elytra gliding state from the start/stop events in
 				// InputData so that Fly/A can exempt gliding players.
@@ -196,8 +201,13 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 			}
 
 		// LevelSoundEvent: secondary swing signal.
+		// SoundEventAttackNoDamage fires on a swing miss; SoundEventAttack fires
+		// on a successful hit. Both indicate a swing animation — KillauraA bots
+		// that suppress packet.Animate would otherwise avoid having the swing
+		// registered on a successful hit.
 		case *packet.LevelSoundEvent:
-			if typed.SoundType == packet.SoundEventAttackNoDamage {
+			if typed.SoundType == packet.SoundEventAttackNoDamage ||
+				typed.SoundType == packet.SoundEventAttack {
 				p.ac.OnSwing(sess.ID)
 			}
 
@@ -302,9 +312,10 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 			// If the packet targets the player's own entity, the resulting velocity
 			// spike is legitimate: record a knockback grace window so that Speed/A
 			// and Speed/B do not flag for the next several ticks.
+			// The velocity is also stored for Velocity/A (Anti-KB) detection.
 			if typed.EntityRuntimeID == sess.EntityRID {
 				if pl := p.ac.GetPlayer(sess.ID); pl != nil {
-					pl.RecordKnockback()
+					pl.RecordKnockback(typed.Velocity)
 				}
 			}
 
@@ -314,7 +325,7 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 			// grace purposes.
 			if typed.EntityRuntimeID == sess.EntityRID {
 				if pl := p.ac.GetPlayer(sess.ID); pl != nil {
-					pl.RecordKnockback()
+					pl.RecordKnockback(typed.Velocity)
 				}
 			}
 		}

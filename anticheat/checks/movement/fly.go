@@ -89,6 +89,13 @@ func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 	if _, hasSlowFall := p.EffectAmplifier(packet.EffectSlowFalling); hasSlowFall {
 		return false, ""
 	}
+	// The Levitation effect continuously pushes the player upward, producing
+	// a sustained positive yDelta that would otherwise trigger the upward-fly
+	// detection. Exempt entirely: Levitation is a server-applied gravity
+	// modifier just like Slow Falling, and Oomph exempts both.
+	if _, hasLevitation := p.EffectAmplifier(packet.EffectLevitation); hasLevitation {
+		return false, ""
+	}
 	// Server-applied knockback (SetActorMotion / MotionPredictionHints) launches
 	// the player into the air; the resulting airborne phase is legitimate.  Skip
 	// the check until the knockback grace window expires to avoid false positives
