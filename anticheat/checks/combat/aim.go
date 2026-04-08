@@ -56,7 +56,10 @@ func (c *AimCheck) Check(p *data.Player) (flagged bool, info string, passAmount 
 
 	yawDelta, _ := p.RotationSnapshot()
 	if yawDelta < 1e-3 {
-		return false, "", 0
+		// Player is not moving their camera horizontally; no information to
+		// evaluate, but the buffer should still slowly decay to avoid
+		// accumulating towards a false positive during stationary periods.
+		return false, "", 0.05
 	}
 
 	r1 := round32(yawDelta, 1)

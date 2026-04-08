@@ -6,6 +6,7 @@ import (
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
 	"github.com/boredape874/Better-pm-AC/config"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
 // flyGraceTicks is the number of consecutive airborne ticks that are always
@@ -64,6 +65,14 @@ func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 	// Players gliding with an elytra are legitimately airborne without falling;
 	// their Y velocity is sustained by horizontal momentum, not a cheat.
 	if p.IsGliding() {
+		return false, ""
+	}
+	// Players with the Slow Falling effect fall at terminal velocity of ~0.005
+	// blocks/tick which is at or below hoverDeltaThreshold.  This causes
+	// HoverTicks to accumulate even though the player is legitimately sinking;
+	// exempt them entirely to avoid false positives.  Mirrors Oomph's behaviour
+	// of skipping the hover check when a gravity-modifying effect is active.
+	if _, hasSlowFall := p.EffectAmplifier(packet.EffectSlowFalling); hasSlowFall {
 		return false, ""
 	}
 	airborne, _, airTicks, hoverTicks := p.FlySnapshot()

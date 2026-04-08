@@ -6,6 +6,7 @@ import (
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
 	"github.com/boredape874/Better-pm-AC/config"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
 // noFallDamageThreshold is the minimum fall distance (blocks) at which vanilla
@@ -59,6 +60,13 @@ func (c *NoFallCheck) Check(p *data.Player) (bool, string) {
 	// A player can fall inside water and land on the ground just after
 	// exiting; the accumulated fall distance is not meaningful for damage.
 	if p.HasRecentWaterExit() {
+		return false, ""
+	}
+	// Exempt players with the Slow Falling effect. In Bedrock Edition, Slow
+	// Falling completely negates fall damage regardless of fall distance, so
+	// a player who lands after a long fall under this effect should not flag.
+	// Mirrors Oomph's effect-exemption logic in the NoFall check.
+	if _, hasSlowFall := p.EffectAmplifier(packet.EffectSlowFalling); hasSlowFall {
 		return false, ""
 	}
 	return true, fmt.Sprintf("fall_dist=%.2f threshold=%.1f", fallDist, noFallDamageThreshold)
