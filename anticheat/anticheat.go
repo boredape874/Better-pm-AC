@@ -30,33 +30,41 @@ type InputDataLoader interface {
 type Detection = meta.Detection
 type DetectionMetadata = meta.DetectionMetadata
 
-// playerDetections holds one *DetectionMetadata copy per check, per player.
-type playerDetections struct {
-	speed        *DetectionMetadata
-	speedB       *DetectionMetadata
-	fly          *DetectionMetadata
-	noFall       *DetectionMetadata
-	noFallB      *DetectionMetadata
-	noSlow       *DetectionMetadata
-	phase        *DetectionMetadata
-	reach        *DetectionMetadata
-	killAura     *DetectionMetadata
-	killAuraB    *DetectionMetadata
-	killAuraC    *DetectionMetadata
-	autoClicker  *DetectionMetadata
-	autoClickerB *DetectionMetadata
-	aim          *DetectionMetadata
-	aimB         *DetectionMetadata
-	badPacket    *DetectionMetadata
-	badPacketB   *DetectionMetadata
-	badPacketC   *DetectionMetadata
-	badPacketD   *DetectionMetadata
-	badPacketE   *DetectionMetadata
-	flyB         *DetectionMetadata
-	timer        *DetectionMetadata
-	velocity     *DetectionMetadata
-	scaffold     *DetectionMetadata
-}
+// Check key constants: canonical "Type/SubType" strings used to index the
+// per-player DetectionMetadata map. They must exactly match the values
+// returned by each Detection implementation's Type() and SubType() methods.
+const (
+	keySpeed        = "Speed/A"
+	keySpeedB       = "Speed/B"
+	keyFly          = "Fly/A"
+	keyFlyB         = "Fly/B"
+	keyNoFall       = "NoFall/A"
+	keyNoFallB      = "NoFall/B"
+	keyNoSlow       = "NoSlow/A"
+	keyPhase        = "Phase/A"
+	keyReach        = "Reach/A"
+	keyKillAura     = "KillAura/A"
+	keyKillAuraB    = "KillAura/B"
+	keyKillAuraC    = "KillAura/C"
+	keyAutoClicker  = "AutoClicker/A"
+	keyAutoClickerB = "AutoClicker/B"
+	keyAim          = "Aim/A"
+	keyAimB         = "Aim/B"
+	keyBadPacket    = "BadPacket/A"
+	keyBadPacketB   = "BadPacket/B"
+	keyBadPacketC   = "BadPacket/C"
+	keyBadPacketD   = "BadPacket/D"
+	keyBadPacketE   = "BadPacket/E"
+	keyTimer        = "Timer/A"
+	keyVelocity     = "Velocity/A"
+	keyScaffold     = "Scaffold/A"
+)
+
+// playerDetections maps each check's canonical "Type/SubType" key to its
+// per-player violation metadata. Using a map instead of a struct means that
+// registering a new check requires no changes here: NewManager adds it to
+// m.checks, and newPlayerDetections() iterates that slice automatically.
+type playerDetections = map[string]*DetectionMetadata
 
 // Manager coordinates all anti-cheat checks and the player registry.
 type Manager struct {
@@ -65,9 +73,16 @@ type Manager struct {
 
 	mu         sync.RWMutex
 	players    map[uuid.UUID]*data.Player
-	detections map[uuid.UUID]*playerDetections
+	detections map[uuid.UUID]playerDetections
 
-	// Stateless check instances
+	// checks is the ordered registry of all registered Detection
+	// implementations. It is used by newPlayerDetections() to initialise
+	// per-player metadata maps so that adding a new check requires no
+	// changes to playerDetections itself — only a new entry here.
+	checks []Detection
+
+	// Stateless check instances (typed for direct invocation with their
+	// specific call signatures).
 	speed        *movement.SpeedCheck
 	speedB       *movement.SpeedBCheck
 	fly          *movement.FlyCheck
@@ -99,11 +114,11 @@ type Manager struct {
 
 // NewManager creates a Manager ready to process packets.
 func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
-	return &Manager{
-		cfg:          cfg,
-		log:          log,
-		players:      make(map[uuid.UUID]*data.Player),
-		detections:   make(map[uuid.UUID]*playerDetections),
+	m := &Manager{
+		cfg:        cfg,
+		log:        log,
+		players:    make(map[uuid.UUID]*data.Player),
+		detections: make(map[uuid.UUID]playerDetections),
 		speed:        movement.NewSpeedCheck(cfg.Speed),
 		speedB:       movement.NewSpeedBCheck(cfg.SpeedB),
 		fly:          movement.NewFlyCheck(cfg.Fly),
@@ -129,35 +144,36 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		velocity:     movement.NewVelocityCheck(cfg.Velocity),
 		scaffold:     movement.NewScaffoldCheck(cfg.Scaffold),
 	}
+	// Register every check so newPlayerDetections() can iterate the slice
+	// instead of enumerating fields. To add a new check: create its typed
+	// field above, then append it here — no other registry changes needed.
+	m.checks = []Detection{
+		m.speed, m.speedB,
+		m.fly, m.flyB,
+		m.noFall, m.noFallB,
+		m.noSlow,
+		m.phase,
+		m.reach,
+		m.killAura, m.killAuraB, m.killAuraC,
+		m.autoClicker, m.autoClickerB,
+		m.aim, m.aimB,
+		m.badPacket, m.badPacketB, m.badPacketC, m.badPacketD, m.badPacketE,
+		m.timer,
+		m.velocity,
+		m.scaffold,
+	}
+	return m
 }
 
-func (m *Manager) newPlayerDetections() *playerDetections {
-	return &playerDetections{
-		speed:        m.speed.DefaultMetadata(),
-		speedB:       m.speedB.DefaultMetadata(),
-		fly:          m.fly.DefaultMetadata(),
-		noFall:       m.noFall.DefaultMetadata(),
-		noFallB:      m.noFallB.DefaultMetadata(),
-		noSlow:       m.noSlow.DefaultMetadata(),
-		phase:        m.phase.DefaultMetadata(),
-		reach:        m.reach.DefaultMetadata(),
-		killAura:     m.killAura.DefaultMetadata(),
-		killAuraB:    m.killAuraB.DefaultMetadata(),
-		killAuraC:    m.killAuraC.DefaultMetadata(),
-		autoClicker:  m.autoClicker.DefaultMetadata(),
-		autoClickerB: m.autoClickerB.DefaultMetadata(),
-		aim:          m.aim.DefaultMetadata(),
-		aimB:         m.aimB.DefaultMetadata(),
-		badPacket:    m.badPacket.DefaultMetadata(),
-		badPacketB:   m.badPacketB.DefaultMetadata(),
-		badPacketC:   m.badPacketC.DefaultMetadata(),
-		badPacketD:   m.badPacketD.DefaultMetadata(),
-		badPacketE:   m.badPacketE.DefaultMetadata(),
-		flyB:         m.flyB.DefaultMetadata(),
-		timer:        m.timer.DefaultMetadata(),
-		velocity:     m.velocity.DefaultMetadata(),
-		scaffold:     m.scaffold.DefaultMetadata(),
+// newPlayerDetections creates a fresh playerDetections map for a new player
+// by iterating the check registry. Adding a new check to m.checks is the
+// only change required — this function needs no modification.
+func (m *Manager) newPlayerDetections() playerDetections {
+	det := make(playerDetections, len(m.checks))
+	for _, chk := range m.checks {
+		det[chk.Type()+"/"+chk.SubType()] = chk.DefaultMetadata()
 	}
+	return det
 }
 
 // AddPlayer registers a new player session.
@@ -189,7 +205,7 @@ func (m *Manager) GetPlayer(id uuid.UUID) *data.Player {
 	return m.getPlayer(id)
 }
 
-func (m *Manager) getDet(id uuid.UUID) *playerDetections {
+func (m *Manager) getDet(id uuid.UUID) playerDetections {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.detections[id]
@@ -237,8 +253,8 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 	// BadPacket/D: NaN/Infinity position — run before UpdatePosition so a
 	// poison packet cannot corrupt the player's position state.
 	if flagged, info := m.badPacketD.Check(pos); flagged {
-		if det.badPacketD.Fail(int64(tick)) {
-			m.handleViolation(p, m.badPacketD, det.badPacketD, info)
+		if det[keyBadPacketD].Fail(int64(tick)) {
+			m.handleViolation(p, m.badPacketD, det[keyBadPacketD], info)
 		}
 		// Do not process further: updating state with NaN/Inf would corrupt checks.
 		return
@@ -247,8 +263,8 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 	// BadPacket/A (tick validation) runs before UpdateTick so it can compare
 	// the incoming tick against the previously stored simulation frame.
 	if flagged, info := m.badPacket.Check(p, tick); flagged {
-		if det.badPacket.Fail(int64(tick)) {
-			m.handleViolation(p, m.badPacket, det.badPacket, info)
+		if det[keyBadPacket].Fail(int64(tick)) {
+			m.handleViolation(p, m.badPacket, det[keyBadPacket], info)
 		}
 	}
 
@@ -259,8 +275,8 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 
 	// BadPacket/B: pitch range validation.
 	if flagged, info := m.badPacketB.Check(p, pitch); flagged {
-		if det.badPacketB.Fail(int64(tick)) {
-			m.handleViolation(p, m.badPacketB, det.badPacketB, info)
+		if det[keyBadPacketB].Fail(int64(tick)) {
+			m.handleViolation(p, m.badPacketB, det[keyBadPacketB], info)
 		}
 	}
 
@@ -268,25 +284,25 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 	// Input flags are set by SetInputFlags() (called before OnInput from proxy)
 	// so InputSnapshot() already reflects the current tick's flags.
 	if flagged, info := m.badPacketC.Check(p); flagged {
-		if det.badPacketC.Fail(int64(tick)) {
-			m.handleViolation(p, m.badPacketC, det.badPacketC, info)
+		if det[keyBadPacketC].Fail(int64(tick)) {
+			m.handleViolation(p, m.badPacketC, det[keyBadPacketC], info)
 		}
 	}
 
 	// BadPacket/E: contradictory start+stop input flags in same tick.
 	if flagged, info := m.badPacketE.Check(inputData); flagged {
-		if det.badPacketE.Fail(int64(tick)) {
-			m.handleViolation(p, m.badPacketE, det.badPacketE, info)
+		if det[keyBadPacketE].Fail(int64(tick)) {
+			m.handleViolation(p, m.badPacketE, det[keyBadPacketE], info)
 		}
 	}
 
 	// Timer/A: high-rate packet detection.
 	if flagged, info := m.timer.Check(p); flagged {
-		if det.timer.Fail(int64(tick)) {
-			m.handleViolation(p, m.timer, det.timer, info)
+		if det[keyTimer].Fail(int64(tick)) {
+			m.handleViolation(p, m.timer, det[keyTimer], info)
 		}
 	} else {
-		det.timer.Pass(0.05)
+		det[keyTimer].Pass(0.05)
 	}
 
 	// Consume teleport grace: if the client just handled a server teleport,
@@ -304,11 +320,11 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 	if !p.HasKnockbackGrace() {
 		if kb := p.KnockbackSnapshot(); kb.Len() >= movement.VelocityAMinKB {
 			if flagged, info := m.velocity.Check(p, kb); flagged {
-				if det.velocity.Fail(int64(tick)) {
-					m.handleViolation(p, m.velocity, det.velocity, info)
+				if det[keyVelocity].Fail(int64(tick)) {
+					m.handleViolation(p, m.velocity, det[keyVelocity], info)
 				}
 			} else {
-				det.velocity.Pass(1.0)
+				det[keyVelocity].Pass(1.0)
 			}
 		}
 	}
@@ -316,95 +332,95 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 	// Speed/A — skip if teleporting or in creative mode.
 	if !teleportGrace {
 		if flagged, info := m.speed.Check(p); flagged {
-			if det.speed.Fail(int64(tick)) {
-				m.handleViolation(p, m.speed, det.speed, info)
+			if det[keySpeed].Fail(int64(tick)) {
+				m.handleViolation(p, m.speed, det[keySpeed], info)
 			}
 		} else {
-			det.speed.Pass(0.05)
+			det[keySpeed].Pass(0.05)
 		}
 
 		// Speed/B — aerial horizontal speed.
 		if flagged, info := m.speedB.Check(p); flagged {
-			if det.speedB.Fail(int64(tick)) {
-				m.handleViolation(p, m.speedB, det.speedB, info)
+			if det[keySpeedB].Fail(int64(tick)) {
+				m.handleViolation(p, m.speedB, det[keySpeedB], info)
 			}
 		} else {
-			det.speedB.Pass(0.05)
+			det[keySpeedB].Pass(0.05)
 		}
 
 		// Phase/A — impossible position delta without teleport.
 		if flagged, info := m.phase.Check(p, false); flagged {
-			if det.phase.Fail(int64(tick)) {
-				m.handleViolation(p, m.phase, det.phase, info)
+			if det[keyPhase].Fail(int64(tick)) {
+				m.handleViolation(p, m.phase, det[keyPhase], info)
 			}
 		}
 	}
 
 	// Fly/A — creative and water exemptions are handled inside Check.
 	if flagged, info := m.fly.Check(p); flagged {
-		if det.fly.Fail(int64(tick)) {
-			m.handleViolation(p, m.fly, det.fly, info)
+		if det[keyFly].Fail(int64(tick)) {
+			m.handleViolation(p, m.fly, det[keyFly], info)
 		}
 	} else {
-		det.fly.Pass(0.5)
+		det[keyFly].Pass(0.5)
 	}
 
 	// Fly/B — gravity bypass detection (float / anti-gravity cheats).
 	// Runs after Fly/A so that Fly/A handles the obvious hover/upward-fly cases
 	// and Fly/B focuses on the subtler slow-fall-without-effect signature.
 	if flagged, info := m.flyB.Check(p); flagged {
-		if det.flyB.Fail(int64(tick)) {
-			m.handleViolation(p, m.flyB, det.flyB, info)
+		if det[keyFlyB].Fail(int64(tick)) {
+			m.handleViolation(p, m.flyB, det[keyFlyB], info)
 		}
 	} else {
-		det.flyB.Pass(0.3)
+		det[keyFlyB].Pass(0.3)
 	}
 
 	// NoFall/A
 	if flagged, info := m.noFall.Check(p); flagged {
-		if det.noFall.Fail(int64(tick)) {
-			m.handleViolation(p, m.noFall, det.noFall, info)
+		if det[keyNoFall].Fail(int64(tick)) {
+			m.handleViolation(p, m.noFall, det[keyNoFall], info)
 		}
 	} else {
-		det.noFall.Pass(0.5)
+		det[keyNoFall].Pass(0.5)
 	}
 
 	// NoFall/B: OnGround spoof detection.
 	if !teleportGrace {
 		if flagged, info := m.noFallB.Check(p); flagged {
-			if det.noFallB.Fail(int64(tick)) {
-				m.handleViolation(p, m.noFallB, det.noFallB, info)
+			if det[keyNoFallB].Fail(int64(tick)) {
+				m.handleViolation(p, m.noFallB, det[keyNoFallB], info)
 			}
 		} else {
-			det.noFallB.Pass(0.2)
+			det[keyNoFallB].Pass(0.2)
 		}
 	}
 
 	// NoSlow/A — item-use speed bypass (eating, bow, shield).
 	if flagged, info := m.noSlow.Check(p); flagged {
-		if det.noSlow.Fail(int64(tick)) {
-			m.handleViolation(p, m.noSlow, det.noSlow, info)
+		if det[keyNoSlow].Fail(int64(tick)) {
+			m.handleViolation(p, m.noSlow, det[keyNoSlow], info)
 		}
 	} else {
-		det.noSlow.Pass(0.2)
+		det[keyNoSlow].Pass(0.2)
 	}
 
 	// Aim/A
 	if flagged, info, passAmount := m.aim.Check(p); flagged {
-		if det.aim.Fail(int64(tick)) {
-			m.handleViolation(p, m.aim, det.aim, info)
+		if det[keyAim].Fail(int64(tick)) {
+			m.handleViolation(p, m.aim, det[keyAim], info)
 		}
 	} else if passAmount > 0 {
-		det.aim.Pass(passAmount)
+		det[keyAim].Pass(passAmount)
 	}
 
 	// Aim/B — constant pitch during yaw rotation (mouse clients only).
 	if flagged, info := m.aimB.Check(p); flagged {
-		if det.aimB.Fail(int64(tick)) {
-			m.handleViolation(p, m.aimB, det.aimB, info)
+		if det[keyAimB].Fail(int64(tick)) {
+			m.handleViolation(p, m.aimB, det[keyAimB], info)
 		}
 	} else {
-		det.aimB.Pass(0.2)
+		det[keyAimB].Pass(0.2)
 	}
 }
 
@@ -422,42 +438,42 @@ func (m *Manager) OnMove(id uuid.UUID, pos mgl32.Vec3, onGround bool) {
 
 	if !teleportGrace {
 		if flagged, info := m.speed.Check(p); flagged {
-			if det.speed.Fail(tick) {
-				m.handleViolation(p, m.speed, det.speed, info)
+			if det[keySpeed].Fail(tick) {
+				m.handleViolation(p, m.speed, det[keySpeed], info)
 			}
 		} else {
-			det.speed.Pass(0.05)
+			det[keySpeed].Pass(0.05)
 		}
 
 		if flagged, info := m.speedB.Check(p); flagged {
-			if det.speedB.Fail(tick) {
-				m.handleViolation(p, m.speedB, det.speedB, info)
+			if det[keySpeedB].Fail(tick) {
+				m.handleViolation(p, m.speedB, det[keySpeedB], info)
 			}
 		} else {
-			det.speedB.Pass(0.05)
+			det[keySpeedB].Pass(0.05)
 		}
 
 		if flagged, info := m.phase.Check(p, false); flagged {
-			if det.phase.Fail(tick) {
-				m.handleViolation(p, m.phase, det.phase, info)
+			if det[keyPhase].Fail(tick) {
+				m.handleViolation(p, m.phase, det[keyPhase], info)
 			}
 		}
 	}
 
 	if flagged, info := m.fly.Check(p); flagged {
-		if det.fly.Fail(tick) {
-			m.handleViolation(p, m.fly, det.fly, info)
+		if det[keyFly].Fail(tick) {
+			m.handleViolation(p, m.fly, det[keyFly], info)
 		}
 	} else {
-		det.fly.Pass(0.5)
+		det[keyFly].Pass(0.5)
 	}
 
 	if flagged, info := m.noFall.Check(p); flagged {
-		if det.noFall.Fail(tick) {
-			m.handleViolation(p, m.noFall, det.noFall, info)
+		if det[keyNoFall].Fail(tick) {
+			m.handleViolation(p, m.noFall, det[keyNoFall], info)
 		}
 	} else {
-		det.noFall.Pass(0.5)
+		det[keyNoFall].Pass(0.5)
 	}
 }
 
@@ -482,37 +498,37 @@ func (m *Manager) OnAttack(attackerID, targetID uuid.UUID, targetRID uint64) {
 	// server position has been received), skip to avoid false positives.
 	if targetPos, ok := p.EntityPos(targetRID); ok {
 		if flagged, info := m.reach.Check(p, targetPos); flagged {
-			if det.reach.Fail(tick) {
-				m.handleViolation(p, m.reach, det.reach, info)
+			if det[keyReach].Fail(tick) {
+				m.handleViolation(p, m.reach, det[keyReach], info)
 			}
 		} else {
-			det.reach.Pass(0.0015)
+			det[keyReach].Pass(0.0015)
 		}
 
 		// KillAura/B: flag if the target is outside the player's FOV.
 		if flagged, info := m.killAuraB.Check(p, targetPos); flagged {
-			if det.killAuraB.Fail(tick) {
-				m.handleViolation(p, m.killAuraB, det.killAuraB, info)
+			if det[keyKillAuraB].Fail(tick) {
+				m.handleViolation(p, m.killAuraB, det[keyKillAuraB], info)
 			}
 		} else {
-			det.killAuraB.Pass(1.0)
+			det[keyKillAuraB].Pass(1.0)
 		}
 	}
 
 	// KillAura/A
 	if flagged, info := m.killAura.Check(p); flagged {
-		if det.killAura.Fail(tick) {
-			m.handleViolation(p, m.killAura, det.killAura, info)
+		if det[keyKillAura].Fail(tick) {
+			m.handleViolation(p, m.killAura, det[keyKillAura], info)
 		}
 	} else {
-		det.killAura.Pass(1.0)
+		det[keyKillAura].Pass(1.0)
 	}
 
 	// KillAura/C: multi-target per-tick.
 	// RecordAttack (called above) already updated the per-tick attack count.
 	if flagged, info := m.killAuraC.Check(p); flagged {
-		if det.killAuraC.Fail(tick) {
-			m.handleViolation(p, m.killAuraC, det.killAuraC, info)
+		if det[keyKillAuraC].Fail(tick) {
+			m.handleViolation(p, m.killAuraC, det[keyKillAuraC], info)
 		}
 	}
 
@@ -521,22 +537,22 @@ func (m *Manager) OnAttack(attackerID, targetID uuid.UUID, targetRID uint64) {
 	// decays during legitimate play, preventing false positives from brief
 	// bursts that occurred before the player settled back to a normal rate.
 	if flagged, info := m.autoClicker.Check(p); flagged {
-		if det.autoClicker.Fail(tick) {
-			m.handleViolation(p, m.autoClicker, det.autoClicker, info)
+		if det[keyAutoClicker].Fail(tick) {
+			m.handleViolation(p, m.autoClicker, det[keyAutoClicker], info)
 		}
 	} else {
-		det.autoClicker.Pass(0.5)
+		det[keyAutoClicker].Pass(0.5)
 	}
 
 	// AutoClicker/B: click interval regularity.
 	// Autoclickers produce suspiciously uniform inter-click intervals (std dev
 	// close to 0 ms). Human clicks have naturally high variance (> ~15 ms).
 	if flagged, info := m.autoClickerB.Check(p); flagged {
-		if det.autoClickerB.Fail(tick) {
-			m.handleViolation(p, m.autoClickerB, det.autoClickerB, info)
+		if det[keyAutoClickerB].Fail(tick) {
+			m.handleViolation(p, m.autoClickerB, det[keyAutoClickerB], info)
 		}
 	} else {
-		det.autoClickerB.Pass(0.3)
+		det[keyAutoClickerB].Pass(0.3)
 	}
 }
 
@@ -560,11 +576,11 @@ func (m *Manager) OnBlockPlace(id uuid.UUID, blockPos mgl32.Vec3, face int32) {
 	}
 	tick := int64(p.SimFrame())
 	if flagged, info := m.scaffold.Check(p, blockPos, face); flagged {
-		if det.scaffold.Fail(tick) {
-			m.handleViolation(p, m.scaffold, det.scaffold, info)
+		if det[keyScaffold].Fail(tick) {
+			m.handleViolation(p, m.scaffold, det[keyScaffold], info)
 		}
 	} else {
-		det.scaffold.Pass(0.3)
+		det[keyScaffold].Pass(0.3)
 	}
 }
 
