@@ -116,8 +116,9 @@ func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 	}
 	// Players who are swimming have near-zero Y velocity by design; exempt them
 	// to avoid false positives when treading water or swimming horizontally.
-	_, _, inWater := p.InputSnapshot()
-	if inWater {
+	// Crawling players may also have unusual Y deltas near ground edges; exempt.
+	_, _, inWater, crawling, _ := p.InputSnapshotFull()
+	if inWater || crawling {
 		return false, ""
 	}
 	// Grace period: skip the entire jump arc before starting to inspect.

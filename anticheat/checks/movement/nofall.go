@@ -52,7 +52,7 @@ func (c *NoFallCheck) Check(p *data.Player) (bool, string) {
 	}
 	// Exempt players who are currently in water — water absorbs fall damage
 	// in vanilla Bedrock Edition regardless of fall distance.
-	_, _, inWater := p.InputSnapshot()
+	_, _, inWater, _, _ := p.InputSnapshotFull()
 	if inWater {
 		return false, ""
 	}

@@ -29,6 +29,7 @@ type playerDetections struct {
 	fly          *DetectionMetadata
 	noFall       *DetectionMetadata
 	noFallB      *DetectionMetadata
+	noSlow       *DetectionMetadata
 	phase        *DetectionMetadata
 	reach        *DetectionMetadata
 	killAura     *DetectionMetadata
@@ -44,6 +45,7 @@ type playerDetections struct {
 	badPacketD   *DetectionMetadata
 	timer        *DetectionMetadata
 	velocity     *DetectionMetadata
+	scaffold     *DetectionMetadata
 }
 
 // Manager coordinates all anti-cheat checks and the player registry.
@@ -61,6 +63,7 @@ type Manager struct {
 	fly          *movement.FlyCheck
 	noFall       *movement.NoFallCheck
 	noFallB      *movement.NoFallBCheck
+	noSlow       *movement.NoSlowCheck
 	phase        *movement.PhaseACheck
 	reach        *combat.ReachCheck
 	killAura     *combat.KillAuraCheck
@@ -76,6 +79,7 @@ type Manager struct {
 	badPacketD   *pkt.BadPacketDCheck
 	timer        *movement.TimerCheck
 	velocity     *movement.VelocityCheck
+	scaffold     *movement.ScaffoldCheck
 
 	// KickFunc is called when a player should be disconnected.
 	KickFunc func(id uuid.UUID, reason string)
@@ -93,6 +97,7 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		fly:          movement.NewFlyCheck(cfg.Fly),
 		noFall:       movement.NewNoFallCheck(cfg.NoFall),
 		noFallB:      movement.NewNoFallBCheck(cfg.NoFallB),
+		noSlow:       movement.NewNoSlowCheck(cfg.NoSlow),
 		phase:        movement.NewPhaseACheck(cfg.Phase),
 		reach:        combat.NewReachCheck(cfg.Reach),
 		killAura:     combat.NewKillAuraCheck(cfg.KillAura),
@@ -108,6 +113,7 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		badPacketD:   pkt.NewBadPacketDCheck(cfg.BadPacketD),
 		timer:        movement.NewTimerCheck(cfg.Timer),
 		velocity:     movement.NewVelocityCheck(cfg.Velocity),
+		scaffold:     movement.NewScaffoldCheck(cfg.Scaffold),
 	}
 }
 
@@ -118,6 +124,7 @@ func (m *Manager) newPlayerDetections() *playerDetections {
 		fly:          m.fly.DefaultMetadata(),
 		noFall:       m.noFall.DefaultMetadata(),
 		noFallB:      m.noFallB.DefaultMetadata(),
+		noSlow:       m.noSlow.DefaultMetadata(),
 		phase:        m.phase.DefaultMetadata(),
 		reach:        m.reach.DefaultMetadata(),
 		killAura:     m.killAura.DefaultMetadata(),
@@ -133,6 +140,7 @@ func (m *Manager) newPlayerDetections() *playerDetections {
 		badPacketD:   m.badPacketD.DefaultMetadata(),
 		timer:        m.timer.DefaultMetadata(),
 		velocity:     m.velocity.DefaultMetadata(),
+		scaffold:     m.scaffold.DefaultMetadata(),
 	}
 }
 
@@ -336,6 +344,15 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 		}
 	}
 
+	// NoSlow/A — item-use speed bypass (eating, bow, shield).
+	if flagged, info := m.noSlow.Check(p); flagged {
+		if det.noSlow.Fail(int64(tick)) {
+			m.handleViolation(p, m.noSlow, det.noSlow, info)
+		}
+	} else {
+		det.noSlow.Pass(0.2)
+	}
+
 	// Aim/A
 	if flagged, info, passAmount := m.aim.Check(p); flagged {
 		if det.aim.Fail(int64(tick)) {
@@ -491,6 +508,27 @@ func (m *Manager) OnAttack(attackerID, targetID uuid.UUID, targetRID uint64) {
 func (m *Manager) OnSwing(id uuid.UUID) {
 	if p := m.getPlayer(id); p != nil {
 		p.RecordSwing()
+	}
+}
+
+// OnBlockPlace is called when a player sends a UseItem (ClickBlock) inventory
+// transaction. blockPos is the position of the base block being clicked (the
+// block whose face was clicked to place a new block on), and face is the face
+// index (0–5, matching Bedrock's BlockFace constants). The proxy extracts both
+// values from UseItemTransactionData before calling here.
+func (m *Manager) OnBlockPlace(id uuid.UUID, blockPos mgl32.Vec3, face int32) {
+	p := m.getPlayer(id)
+	det := m.getDet(id)
+	if p == nil || det == nil {
+		return
+	}
+	tick := int64(p.SimFrame())
+	if flagged, info := m.scaffold.Check(p, blockPos, face); flagged {
+		if det.scaffold.Fail(tick) {
+			m.handleViolation(p, m.scaffold, det.scaffold, info)
+		}
+	} else {
+		det.scaffold.Pass(0.3)
 	}
 }
 

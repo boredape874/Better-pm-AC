@@ -71,8 +71,8 @@ func (c *SpeedBCheck) Check(p *data.Player) (bool, string) {
 	if p.HasKnockbackGrace() {
 		return false, ""
 	}
-	_, _, inWater := p.InputSnapshot()
-	if inWater {
+	_, _, inWater, crawling, _ := p.InputSnapshotFull()
+	if inWater || crawling {
 		return false, ""
 	}
 
@@ -86,7 +86,7 @@ func (c *SpeedBCheck) Check(p *data.Player) (bool, string) {
 	maxSpeed := float32(c.cfg.MaxSpeed) * speedBAirMultiplier
 
 	// Sprint carries into the air; apply the same sprint multiplier as Speed/A.
-	sprinting, _, _ := p.InputSnapshot()
+	sprinting, _, _, _, _ := p.InputSnapshotFull()
 	if sprinting {
 		maxSpeed *= sprintSpeedMultiplier
 	}

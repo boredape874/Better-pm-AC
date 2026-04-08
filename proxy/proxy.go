@@ -154,10 +154,32 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 				sess.inWater = false
 			}
 
+			// Maintain sticky crawling state. StartCrawling fires once on entry;
+			// StopCrawling fires once on exit. Speed/A uses a dedicated crawl-speed
+			// limit when this flag is active.
+			if typed.InputData.Load(packet.InputFlagStartCrawling) {
+				sess.isCrawling = true
+			}
+			if typed.InputData.Load(packet.InputFlagStopCrawling) {
+				sess.isCrawling = false
+			}
+
+			// Maintain sticky item-use state. InputFlagStartUsingItem fires once
+			// when the player begins using an item (eating, drawing a bow, raising a
+			// shield, etc.). InputFlagPerformItemInteraction fires when the use
+			// completes or is cancelled; we use it to clear the flag so that
+			// NoSlow/A does not flag the player after the interaction is done.
+			if typed.InputData.Load(packet.InputFlagStartUsingItem) {
+				sess.isUsingItem = true
+			}
+			if typed.InputData.Load(packet.InputFlagPerformItemInteraction) {
+				sess.isUsingItem = false
+			}
+
 			// Apply input state to player data so checks can read it.
 			if pl := p.ac.GetPlayer(sess.ID); pl != nil {
 				pl.SetLatency(sess.Client.Latency())
-				pl.SetInputFlags(sprinting, sneaking, sess.inWater)
+				pl.SetInputFlags(sprinting, sneaking, sess.inWater, sess.isCrawling, sess.isUsingItem)
 
 				// Track elytra gliding state from the start/stop events in
 				// InputData so that Fly/A can exempt gliding players.
@@ -219,12 +241,27 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 		// server-authoritative position from the entity table instead of using
 		// the client-supplied ClickedPosition (which is a hitbox-relative offset
 		// and can be spoofed).
+		// UseItem with ClickBlock action is the block-placement packet; pass the
+		// block position and face to Scaffold/A for angle-based validation.
 		case *packet.InventoryTransaction:
 			if typed.TransactionData != nil {
-				if hit, ok := typed.TransactionData.(*protocol.UseItemOnEntityTransactionData); ok &&
-					hit.ActionType == protocol.UseItemOnEntityActionAttack {
-					targetID := uuidFromEntityRID(sess, hit.TargetEntityRuntimeID)
-					p.ac.OnAttack(sess.ID, targetID, hit.TargetEntityRuntimeID)
+				switch td := typed.TransactionData.(type) {
+				case *protocol.UseItemOnEntityTransactionData:
+					if td.ActionType == protocol.UseItemOnEntityActionAttack {
+						targetID := uuidFromEntityRID(sess, td.TargetEntityRuntimeID)
+						p.ac.OnAttack(sess.ID, targetID, td.TargetEntityRuntimeID)
+					}
+				case *protocol.UseItemTransactionData:
+					if td.ActionType == protocol.UseItemActionClickBlock {
+						// BlockPosition is a BlockPos (integer coordinates).
+						// Convert to float32 for Scaffold/A's geometry math.
+						bpf := mgl32.Vec3{
+							float32(td.BlockPosition[0]),
+							float32(td.BlockPosition[1]),
+							float32(td.BlockPosition[2]),
+						}
+						p.ac.OnBlockPlace(sess.ID, bpf, td.BlockFace)
+					}
 				}
 			}
 		}
@@ -281,6 +318,20 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 		case *packet.MoveActorAbsolute:
 			// An existing non-player entity has moved.
 			p.ac.UpdateEntityPos(sess.ID, typed.EntityRuntimeID, typed.Position)
+
+		case *packet.MoveActorDelta:
+			// MoveActorDelta is the bandwidth-optimised variant of MoveActorAbsolute
+			// used for non-player entities in Bedrock 1.16.100+. Despite its name
+			// the packet contains the new ABSOLUTE position (not a delta), so we
+			// can update the entity table directly. We only update when at least one
+			// positional axis is present in the packet flags; rotation-only updates
+			// carry no position information and should not overwrite the stored position.
+			hasPos := typed.Flags&(packet.MoveActorDeltaFlagHasX|
+				packet.MoveActorDeltaFlagHasY|
+				packet.MoveActorDeltaFlagHasZ) != 0
+			if hasPos {
+				p.ac.UpdateEntityPos(sess.ID, typed.EntityRuntimeID, typed.Position)
+			}
 
 		case *packet.RemoveActor:
 			// An entity has been removed from the world; clean up the table.

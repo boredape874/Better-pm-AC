@@ -25,6 +25,19 @@ type Session struct {
 	// in Fly/A, NoFall/A, Speed/A, and Speed/B apply correctly throughout the
 	// swim session rather than for only a single tick.
 	inWater bool
+
+	// isCrawling is a persistent flag set on InputFlagStartCrawling and cleared
+	// on InputFlagStopCrawling. Crawling significantly reduces movement speed,
+	// so Speed/A uses a dedicated crawl multiplier instead of the normal limits.
+	// Maintaining sticky state here (rather than recomputing per-tick from the
+	// start/stop flags) mirrors the same pattern used for inWater.
+	isCrawling bool
+
+	// isUsingItem is a persistent flag set on InputFlagStartUsingItem and
+	// cleared when InputFlagPerformItemInteraction fires (item use completed /
+	// cancelled). While active, Speed/A enforces the slower item-use speed
+	// limit and NoSlow/A checks for speed that exceeds that limit.
+	isUsingItem bool
 }
 
 // newSession creates a Session for the given player.

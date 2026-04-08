@@ -112,9 +112,11 @@ type Player struct {
 	// InputFlagStartGliding / InputFlagStopGliding events). Fly/A exempts
 	// gliding players because elytras legitimately sustain horizontal flight.
 	Sprinting bool
-	Sneaking  bool
-	InWater   bool
-	Gliding   bool
+	Sneaking   bool
+	InWater    bool
+	Gliding    bool
+	Crawling   bool // true while InputFlagStartCrawling active (sticky); cleared by StopCrawling
+	UsingItem  bool // true while player is using an item (eating, bow, shield) for NoSlow/A
 
 	// waterExitGrace counts down (ticks) after the player transitions from
 	// in-water to out-of-water. While positive, NoFall/A is suppressed so that
@@ -488,7 +490,9 @@ func (p *Player) InputRate() int {
 // that NoFall/A does not flag players who exit a body of water and land
 // within a few ticks (the accumulated fall-distance counter is not meaningful
 // for damage purposes in that scenario).
-func (p *Player) SetInputFlags(sprinting, sneaking, inWater bool) {
+// crawling and usingItem are sticky flags maintained by the proxy session
+// across ticks (see proxy/session.go).
+func (p *Player) SetInputFlags(sprinting, sneaking, inWater, crawling, usingItem bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	// Detect water→not-water transition.
@@ -498,6 +502,8 @@ func (p *Player) SetInputFlags(sprinting, sneaking, inWater bool) {
 	p.Sprinting = sprinting
 	p.Sneaking = sneaking
 	p.InWater = inWater
+	p.Crawling = crawling
+	p.UsingItem = usingItem
 }
 
 // InputSnapshot returns the current input state flags in a single lock
@@ -506,6 +512,14 @@ func (p *Player) InputSnapshot() (sprinting, sneaking, inWater bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.Sprinting, p.Sneaking, p.InWater
+}
+
+// InputSnapshotFull returns all input state flags including crawling and
+// item-use state. Used by Speed/A (crawl speed limit) and NoSlow/A.
+func (p *Player) InputSnapshotFull() (sprinting, sneaking, inWater, crawling, usingItem bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.Sprinting, p.Sneaking, p.InWater, p.Crawling, p.UsingItem
 }
 
 // IsJustLanded returns true on the first tick the player transitions from

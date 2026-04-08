@@ -63,7 +63,7 @@ func (c *NoFallBCheck) Check(p *data.Player) (bool, string) {
 	if p.IsGliding() {
 		return false, ""
 	}
-	_, _, inWater := p.InputSnapshot()
+	_, _, inWater, _, _ := p.InputSnapshotFull()
 	if inWater {
 		return false, ""
 	}

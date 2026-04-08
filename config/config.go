@@ -29,6 +29,7 @@ type AnticheatConfig struct {
 	Fly          FlyConfig          `toml:"fly"`
 	NoFall       NoFallConfig       `toml:"nofall"`
 	NoFallB      NoFallBConfig      `toml:"nofall_b"`
+	NoSlow       NoSlowConfig       `toml:"noslow"`
 	Phase        PhaseAConfig       `toml:"phase"`
 	Reach        ReachConfig        `toml:"reach"`
 	KillAura     KillAuraConfig     `toml:"killaura"`
@@ -42,6 +43,7 @@ type AnticheatConfig struct {
 	BadPacketB   BadPacketBConfig   `toml:"badpacket_b"`
 	BadPacketC   BadPacketCConfig   `toml:"badpacket_c"`
 	BadPacketD   BadPacketDConfig   `toml:"badpacket_d"`
+	Scaffold     ScaffoldConfig     `toml:"scaffold"`
 	Timer        TimerConfig        `toml:"timer"`
 	Velocity     VelocityConfig     `toml:"velocity"`
 }
@@ -165,6 +167,23 @@ type VelocityConfig struct {
 	Enabled    bool `toml:"enabled"`
 	Violations int  `toml:"violations"`
 }
+
+// NoSlowConfig configures the NoSlow/A check.
+// MaxItemUseSpeed is the maximum horizontal speed (blocks/tick) allowed while
+// the player is actively using an item (eating, drawing a bow, blocking).
+// Vanilla item-use speed is ~27% of base walking speed; 0.21 b/tick is a
+// generous ceiling that prevents false positives on laggy clients.
+type NoSlowConfig struct {
+	Enabled         bool    `toml:"enabled"`
+	MaxItemUseSpeed float64 `toml:"max_item_use_speed"` // blocks/tick, default 0.21
+	Violations      int     `toml:"violations"`
+}
+
+// ScaffoldConfig configures the Scaffold/A check.
+type ScaffoldConfig struct {
+	Enabled    bool `toml:"enabled"`
+	Violations int  `toml:"violations"`
+}
 // MaxRatePS is the maximum number of PlayerAuthInput packets allowed per second.
 // At 20 TPS the expected rate is exactly 20; 25 gives a 25% tolerance for
 // server-side jitter while reliably catching Timer hacks (≥ 1.25×).
@@ -187,6 +206,7 @@ func Default() Config {
 			Fly:          FlyConfig{Enabled: true, Violations: 5},
 			NoFall:       NoFallConfig{Enabled: true, Violations: 5},
 			NoFallB:      NoFallBConfig{Enabled: true, Violations: 5},
+			NoSlow:       NoSlowConfig{Enabled: true, MaxItemUseSpeed: 0.21, Violations: 8},
 			Phase:        PhaseAConfig{Enabled: true, Violations: 3},
 			Reach:        ReachConfig{Enabled: true, MaxReach: 3.1, Violations: 7},
 			KillAura:     KillAuraConfig{Enabled: true, Violations: 1},
@@ -202,6 +222,7 @@ func Default() Config {
 			BadPacketD:   BadPacketDConfig{Enabled: true, Violations: 1},
 			Timer:        TimerConfig{Enabled: true, MaxRatePS: 22, Violations: 5},
 			Velocity:     VelocityConfig{Enabled: true, Violations: 5},
+			Scaffold:     ScaffoldConfig{Enabled: true, Violations: 3},
 		},
 	}
 }

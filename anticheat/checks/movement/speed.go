@@ -17,6 +17,19 @@ const sprintSpeedMultiplier = float32(1.30)
 // sneakSpeedMultiplier is the ratio of sneaking speed to walking speed.
 const sneakSpeedMultiplier = float32(0.30)
 
+// crawlSpeedMultiplier is the ratio of crawling speed to walking speed.
+// In vanilla Bedrock Edition, crawling speed is approximately 0.15×–0.20× of
+// walking speed, which is even slower than sneaking. We use 0.25 to allow a
+// small tolerance above the empirical minimum and avoid false positives on
+// latency-affected frames.
+const crawlSpeedMultiplier = float32(0.25)
+
+// useItemSpeedMultiplier is the ratio of item-use speed to walking speed.
+// In vanilla Bedrock Edition, a player eating or drawing a bow moves at
+// approximately 27% of their base walking speed.  We allow 0.35 as a tolerant
+// upper bound; NoSlow/A uses 0.30 as a tighter threshold for its own check.
+const useItemSpeedMultiplier = float32(0.35)
+
 // speedEffectBonus is the speed bonus per amplifier level for the Speed potion
 // effect. Speed I (amplifier=0) adds +20%, Speed II (amplifier=1) adds +40%,
 // etc. Formula: maxSpeed *= (1 + speedEffectBonus * (amplifier + 1)).
@@ -97,8 +110,14 @@ func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
 	maxSpeed := float32(c.cfg.MaxSpeed)
 
 	// Adjust the limit based on the player's current input state.
-	sprinting, sneaking, _ := p.InputSnapshot()
+	sprinting, sneaking, _, crawling, usingItem := p.InputSnapshotFull()
 	switch {
+	case usingItem:
+		// Item use (eating, bow draw, shield) slows the player to ~27% of base
+		// speed. Sprint is suppressed during item use in vanilla.
+		maxSpeed *= useItemSpeedMultiplier
+	case crawling:
+		maxSpeed *= crawlSpeedMultiplier
 	case sprinting:
 		maxSpeed *= sprintSpeedMultiplier
 	case sneaking:
@@ -124,7 +143,7 @@ func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
 	}
 
 	if speed > maxSpeed {
-		return true, fmt.Sprintf("speed=%.4f max=%.4f sprint=%v sneak=%v", speed, maxSpeed, sprinting, sneaking)
+		return true, fmt.Sprintf("speed=%.4f max=%.4f sprint=%v sneak=%v crawl=%v usingItem=%v", speed, maxSpeed, sprinting, sneaking, crawling, usingItem)
 	}
 	return false, ""
 }
