@@ -72,6 +72,11 @@ type Player struct {
 	LastAirTicks int
 	// HoverTicks counts consecutive airborne packets where |dy| < hoverDeltaThreshold.
 	HoverTicks int
+	// GravViolTicks counts consecutive airborne ticks where the Y delta is higher
+	// than the value predicted by vanilla gravity physics. Used by Fly/B to
+	// detect float/anti-gravity cheats that keep the player airborne without
+	// triggering the Fly/A hover threshold.
+	GravViolTicks int
 	// GroundFallTicks counts consecutive ticks where the player claims to be
 	// on the ground (OnGround=true) while their Y position delta is negative
 	// beyond the NoFall/B detection threshold. Used to detect clients that
@@ -111,12 +116,13 @@ type Player struct {
 	// Gliding is true while the player is wearing and using an elytra (set from
 	// InputFlagStartGliding / InputFlagStopGliding events). Fly/A exempts
 	// gliding players because elytras legitimately sustain horizontal flight.
-	Sprinting bool
-	Sneaking   bool
-	InWater    bool
-	Gliding    bool
-	Crawling   bool // true while InputFlagStartCrawling active (sticky); cleared by StopCrawling
-	UsingItem  bool // true while player is using an item (eating, bow, shield) for NoSlow/A
+	Sprinting        bool
+	Sneaking         bool
+	InWater          bool
+	Gliding          bool
+	Crawling         bool // true while InputFlagStartCrawling active (sticky); cleared by StopCrawling
+	UsingItem        bool // true while player is using an item (eating, bow, shield) for NoSlow/A
+	TerrainCollision bool // true if InputFlagHorizontalCollision or InputFlagVerticalCollision is set
 
 	// waterExitGrace counts down (ticks) after the player transitions from
 	// in-water to out-of-water. While positive, NoFall/A is suppressed so that
@@ -323,6 +329,7 @@ func (p *Player) UpdatePosition(pos mgl32.Vec3, onGround bool) {
 		// Reset all airborne counters on landing.
 		p.AirTicks = 0
 		p.HoverTicks = 0
+		p.GravViolTicks = 0
 		p.FallDistance = 0
 		p.FallStartY = 0
 		p.fallTracking = false
@@ -345,6 +352,23 @@ func (p *Player) UpdatePosition(pos mgl32.Vec3, onGround bool) {
 		} else {
 			p.HoverTicks = 0
 		}
+
+		// Gravity violation tracking for Fly/B.
+		// Vanilla Bedrock applies: nextYVel = (prevYVel - gravityAccel) * airDrag
+		// where gravityAccel = 0.08 b/tick² and airDrag = 0.98.
+		// p.LastVelocity is already set to the old Velocity above before we
+		// updated p.Velocity, so p.LastVelocity[1] == previous Y delta.
+		const gravityAccel = float32(0.08)
+		const airDrag = float32(0.98)
+		const gravViolTolerance = float32(0.03) // allow 0.03 b/tick rounding error
+		prevYDelta := p.LastVelocity[1]
+		predictedY := (prevYDelta - gravityAccel) * airDrag
+		if dy > predictedY+gravViolTolerance {
+			p.GravViolTicks++
+		} else {
+			p.GravViolTicks = 0
+		}
+
 		// Fall distance tracking: use a bool flag instead of FallStartY == 0
 		// so that players falling from Y≈0 are handled correctly.
 		if pos[1] < p.LastPosition[1] {
@@ -383,15 +407,17 @@ func (p *Player) NoFallSnapshot() (justLanded bool, fallDistance float32) {
 	return p.OnGround && !p.LastOnGround, p.LastFallDistance
 }
 
-// FlySnapshot returns the data needed by Fly/A:
+// FlySnapshot returns the data needed by Fly/A and Fly/B:
 //   - airborne: true if the player is not on the ground
 //   - yDeltaPerTick: Y component of the positional delta (blocks/tick)
 //   - airTicks: consecutive airborne ticks since last landing
 //   - hoverTicks: consecutive ticks with near-zero Y delta while airborne
-func (p *Player) FlySnapshot() (airborne bool, yDeltaPerTick float32, airTicks, hoverTicks int) {
+//   - gravViolTicks: consecutive airborne ticks where Y delta exceeded the
+//     vanilla gravity prediction (used by Fly/B)
+func (p *Player) FlySnapshot() (airborne bool, yDeltaPerTick float32, airTicks, hoverTicks, gravViolTicks int) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return !p.OnGround, p.Velocity[1], p.AirTicks, p.HoverTicks
+	return !p.OnGround, p.Velocity[1], p.AirTicks, p.HoverTicks, p.GravViolTicks
 }
 
 // GroundFallSnapshot returns data needed by NoFall/B to detect OnGround spoofing:
@@ -492,7 +518,7 @@ func (p *Player) InputRate() int {
 // for damage purposes in that scenario).
 // crawling and usingItem are sticky flags maintained by the proxy session
 // across ticks (see proxy/session.go).
-func (p *Player) SetInputFlags(sprinting, sneaking, inWater, crawling, usingItem bool) {
+func (p *Player) SetInputFlags(sprinting, sneaking, inWater, crawling, usingItem, terrainCollision bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	// Detect water→not-water transition.
@@ -504,6 +530,7 @@ func (p *Player) SetInputFlags(sprinting, sneaking, inWater, crawling, usingItem
 	p.InWater = inWater
 	p.Crawling = crawling
 	p.UsingItem = usingItem
+	p.TerrainCollision = terrainCollision
 }
 
 // InputSnapshot returns the current input state flags in a single lock
@@ -520,6 +547,16 @@ func (p *Player) InputSnapshotFull() (sprinting, sneaking, inWater, crawling, us
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.Sprinting, p.Sneaking, p.InWater, p.Crawling, p.UsingItem
+}
+
+// HasTerrainCollision returns true if the player reported a horizontal or
+// vertical terrain collision in their most recent PlayerAuthInput packet. Fly/B
+// uses this to exempt players who are touching climbable surfaces (ladders,
+// vines) where vanilla gravity does not apply in the normal way.
+func (p *Player) HasTerrainCollision() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.TerrainCollision
 }
 
 // IsJustLanded returns true on the first tick the player transitions from

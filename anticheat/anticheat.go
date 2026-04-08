@@ -18,6 +18,14 @@ import (
 	"github.com/google/uuid"
 )
 
+// InputDataLoader abstracts protocol.Bitset.Load so the anticheat package does
+// not need to import the protocol package (which would cause an import cycle
+// through the proxy package). The bit argument matches protocol.Bitset's
+// actual Load(int) bool signature.
+type InputDataLoader interface {
+	Load(bit int) bool
+}
+
 // Re-export so callers only need to import anticheat, not anticheat/meta.
 type Detection = meta.Detection
 type DetectionMetadata = meta.DetectionMetadata
@@ -43,6 +51,8 @@ type playerDetections struct {
 	badPacketB   *DetectionMetadata
 	badPacketC   *DetectionMetadata
 	badPacketD   *DetectionMetadata
+	badPacketE   *DetectionMetadata
+	flyB         *DetectionMetadata
 	timer        *DetectionMetadata
 	velocity     *DetectionMetadata
 	scaffold     *DetectionMetadata
@@ -77,6 +87,8 @@ type Manager struct {
 	badPacketB   *pkt.BadPacketBCheck
 	badPacketC   *pkt.BadPacketCCheck
 	badPacketD   *pkt.BadPacketDCheck
+	badPacketE   *pkt.BadPacketECheck
+	flyB         *movement.FlyBCheck
 	timer        *movement.TimerCheck
 	velocity     *movement.VelocityCheck
 	scaffold     *movement.ScaffoldCheck
@@ -111,6 +123,8 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		badPacketB:   pkt.NewBadPacketBCheck(cfg.BadPacketB),
 		badPacketC:   pkt.NewBadPacketCCheck(cfg.BadPacketC),
 		badPacketD:   pkt.NewBadPacketDCheck(cfg.BadPacketD),
+		badPacketE:   pkt.NewBadPacketECheck(cfg.BadPacketE),
+		flyB:         movement.NewFlyBCheck(cfg.FlyB),
 		timer:        movement.NewTimerCheck(cfg.Timer),
 		velocity:     movement.NewVelocityCheck(cfg.Velocity),
 		scaffold:     movement.NewScaffoldCheck(cfg.Scaffold),
@@ -138,6 +152,8 @@ func (m *Manager) newPlayerDetections() *playerDetections {
 		badPacketB:   m.badPacketB.DefaultMetadata(),
 		badPacketC:   m.badPacketC.DefaultMetadata(),
 		badPacketD:   m.badPacketD.DefaultMetadata(),
+		badPacketE:   m.badPacketE.DefaultMetadata(),
+		flyB:         m.flyB.DefaultMetadata(),
 		timer:        m.timer.DefaultMetadata(),
 		velocity:     m.velocity.DefaultMetadata(),
 		scaffold:     m.scaffold.DefaultMetadata(),
@@ -206,7 +222,9 @@ func (m *Manager) RemoveEntity(playerID uuid.UUID, uid int64) {
 
 // OnInput is called for every PlayerAuthInput packet.
 // inputMode is PlayerAuthInput.InputMode (1=Mouse, 2=Touch, 3=GamePad).
-func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bool, yaw, pitch float32, inputMode uint32) {
+// inputData is the InputData bitset from the packet, used by BadPacket/E to
+// detect contradictory start+stop flag pairs.
+func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bool, yaw, pitch float32, inputMode uint32, inputData InputDataLoader) {
 	p := m.getPlayer(id)
 	det := m.getDet(id)
 	if p == nil || det == nil {
@@ -252,6 +270,13 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 	if flagged, info := m.badPacketC.Check(p); flagged {
 		if det.badPacketC.Fail(int64(tick)) {
 			m.handleViolation(p, m.badPacketC, det.badPacketC, info)
+		}
+	}
+
+	// BadPacket/E: contradictory start+stop input flags in same tick.
+	if flagged, info := m.badPacketE.Check(inputData); flagged {
+		if det.badPacketE.Fail(int64(tick)) {
+			m.handleViolation(p, m.badPacketE, det.badPacketE, info)
 		}
 	}
 
@@ -322,6 +347,17 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 		}
 	} else {
 		det.fly.Pass(0.5)
+	}
+
+	// Fly/B — gravity bypass detection (float / anti-gravity cheats).
+	// Runs after Fly/A so that Fly/A handles the obvious hover/upward-fly cases
+	// and Fly/B focuses on the subtler slow-fall-without-effect signature.
+	if flagged, info := m.flyB.Check(p); flagged {
+		if det.flyB.Fail(int64(tick)) {
+			m.handleViolation(p, m.flyB, det.flyB, info)
+		}
+	} else {
+		det.flyB.Pass(0.3)
 	}
 
 	// NoFall/A

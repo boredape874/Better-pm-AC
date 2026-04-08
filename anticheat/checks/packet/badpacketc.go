@@ -44,7 +44,7 @@ func (c *BadPacketCCheck) Check(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
-	sprinting, sneaking, _ := p.InputSnapshot()
+	sprinting, sneaking, _, _, _ := p.InputSnapshotFull()
 	if sprinting && sneaking {
 		return true, "sprint+sneak"
 	}

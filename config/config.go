@@ -43,6 +43,8 @@ type AnticheatConfig struct {
 	BadPacketB   BadPacketBConfig   `toml:"badpacket_b"`
 	BadPacketC   BadPacketCConfig   `toml:"badpacket_c"`
 	BadPacketD   BadPacketDConfig   `toml:"badpacket_d"`
+	BadPacketE   BadPacketEConfig   `toml:"badpacket_e"`
+	FlyB         FlyBConfig         `toml:"fly_b"`
 	Scaffold     ScaffoldConfig     `toml:"scaffold"`
 	Timer        TimerConfig        `toml:"timer"`
 	Velocity     VelocityConfig     `toml:"velocity"`
@@ -184,6 +186,18 @@ type ScaffoldConfig struct {
 	Enabled    bool `toml:"enabled"`
 	Violations int  `toml:"violations"`
 }
+
+// BadPacketEConfig configures the BadPacket/E check.
+type BadPacketEConfig struct {
+	Enabled    bool `toml:"enabled"`
+	Violations int  `toml:"violations"`
+}
+
+// FlyBConfig configures the Fly/B gravity-bypass check.
+type FlyBConfig struct {
+	Enabled    bool `toml:"enabled"`
+	Violations int  `toml:"violations"`
+}
 // MaxRatePS is the maximum number of PlayerAuthInput packets allowed per second.
 // At 20 TPS the expected rate is exactly 20; 25 gives a 25% tolerance for
 // server-side jitter while reliably catching Timer hacks (≥ 1.25×).
@@ -220,6 +234,8 @@ func Default() Config {
 			BadPacketB:   BadPacketBConfig{Enabled: true, Violations: 1},
 			BadPacketC:   BadPacketCConfig{Enabled: true, Violations: 1},
 			BadPacketD:   BadPacketDConfig{Enabled: true, Violations: 1},
+			BadPacketE:   BadPacketEConfig{Enabled: true, Violations: 1},
+			FlyB:         FlyBConfig{Enabled: true, Violations: 5},
 			Timer:        TimerConfig{Enabled: true, MaxRatePS: 22, Violations: 5},
 			Velocity:     VelocityConfig{Enabled: true, Violations: 5},
 			Scaffold:     ScaffoldConfig{Enabled: true, Violations: 3},

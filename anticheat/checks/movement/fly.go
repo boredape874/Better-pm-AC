@@ -110,7 +110,7 @@ func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 	if p.HasRecentWaterExit() {
 		return false, ""
 	}
-	airborne, yDelta, airTicks, hoverTicks := p.FlySnapshot()
+	airborne, yDelta, airTicks, hoverTicks, _ := p.FlySnapshot()
 	if !airborne {
 		return false, ""
 	}

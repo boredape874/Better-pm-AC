@@ -76,7 +76,7 @@ func (c *SpeedBCheck) Check(p *data.Player) (bool, string) {
 		return false, ""
 	}
 
-	_, _, airTicks, _ := p.FlySnapshot()
+	_, _, airTicks, _, _ := p.FlySnapshot()
 	// Only check players who are genuinely airborne past the grace period.
 	if airTicks < speedBGraceTicks {
 		return false, ""

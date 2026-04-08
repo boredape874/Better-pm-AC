@@ -102,6 +102,15 @@ func (c *VelocityCheck) Check(p *data.Player, kb mgl32.Vec2) (bool, string) {
 	if p.IsGliding() {
 		return false, ""
 	}
+	// Water and crawling both alter knockback physics significantly: water drag
+	// exponentially decays horizontal velocity so the ratio-based threshold
+	// becomes unreliable; crawling physics are non-standard. Exempt both to
+	// avoid false positives (mirrors Oomph's water-state exemption in velocity
+	// absorption validation).
+	_, _, inWater, crawling, _ := p.InputSnapshotFull()
+	if inWater || crawling {
+		return false, ""
+	}
 
 	// Measure the player's horizontal speed on the current tick.
 	// For direction-aware comparison, also project the velocity onto the

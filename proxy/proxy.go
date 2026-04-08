@@ -179,7 +179,9 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 			// Apply input state to player data so checks can read it.
 			if pl := p.ac.GetPlayer(sess.ID); pl != nil {
 				pl.SetLatency(sess.Client.Latency())
-				pl.SetInputFlags(sprinting, sneaking, sess.inWater, sess.isCrawling, sess.isUsingItem)
+				terrainCollision := typed.InputData.Load(packet.InputFlagHorizontalCollision) ||
+					typed.InputData.Load(packet.InputFlagVerticalCollision)
+				pl.SetInputFlags(sprinting, sneaking, sess.inWater, sess.isCrawling, sess.isUsingItem, terrainCollision)
 
 				// Track elytra gliding state from the start/stop events in
 				// InputData so that Fly/A can exempt gliding players.
@@ -201,7 +203,7 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 			}
 
 			// Pass InputMode so Aim/A can exempt touch/gamepad clients.
-			p.ac.OnInput(sess.ID, typed.Tick, pos, onGround, typed.Yaw, typed.Pitch, typed.InputMode)
+			p.ac.OnInput(sess.ID, typed.Tick, pos, onGround, typed.Yaw, typed.Pitch, typed.InputMode, typed.InputData)
 
 			if typed.InputData.Load(packet.InputFlagMissedSwing) {
 				p.ac.OnSwing(sess.ID)
