@@ -24,18 +24,19 @@ type ProxyConfig struct {
 
 // AnticheatConfig groups all check configurations.
 type AnticheatConfig struct {
-	Speed       SpeedConfig       `toml:"speed"`
-	Fly         FlyConfig         `toml:"fly"`
-	NoFall      NoFallConfig      `toml:"nofall"`
-	Reach       ReachConfig       `toml:"reach"`
-	KillAura    KillAuraConfig    `toml:"killaura"`
-	KillAuraB   KillAuraBConfig   `toml:"killaura_b"`
-	AutoClicker AutoClickerConfig `toml:"autoclicker"`
-	Aim         AimConfig         `toml:"aim"`
-	BadPacket   BadPacketConfig   `toml:"badpacket"`
-	BadPacketB  BadPacketBConfig  `toml:"badpacket_b"`
-	BadPacketC  BadPacketCConfig  `toml:"badpacket_c"`
-	Timer       TimerConfig       `toml:"timer"`
+	Speed        SpeedConfig        `toml:"speed"`
+	Fly          FlyConfig          `toml:"fly"`
+	NoFall       NoFallConfig       `toml:"nofall"`
+	Reach        ReachConfig        `toml:"reach"`
+	KillAura     KillAuraConfig     `toml:"killaura"`
+	KillAuraB    KillAuraBConfig    `toml:"killaura_b"`
+	AutoClicker  AutoClickerConfig  `toml:"autoclicker"`
+	AutoClickerB AutoClickerBConfig `toml:"autoclicker_b"`
+	Aim          AimConfig          `toml:"aim"`
+	BadPacket    BadPacketConfig    `toml:"badpacket"`
+	BadPacketB   BadPacketBConfig   `toml:"badpacket_b"`
+	BadPacketC   BadPacketCConfig   `toml:"badpacket_c"`
+	Timer        TimerConfig        `toml:"timer"`
 }
 
 // SpeedConfig configures the Speed/A check.
@@ -83,6 +84,14 @@ type AutoClickerConfig struct {
 	Violations int  `toml:"violations"`
 }
 
+// AutoClickerBConfig configures the AutoClicker/B check (click interval consistency).
+type AutoClickerBConfig struct {
+	Enabled          bool    `toml:"enabled"`
+	StdDevThreshold  float64 `toml:"std_dev_threshold_ms"` // ms; below this value is suspicious
+	MinSamples       int     `toml:"min_samples"`          // minimum interval samples before flagging
+	Violations       int     `toml:"violations"`
+}
+
 // AimConfig configures the Aim/A (rounded-yaw) check.
 type AimConfig struct {
 	Enabled    bool `toml:"enabled"`
@@ -125,18 +134,19 @@ func Default() Config {
 			RemoteAddr: "127.0.0.1:19133",
 		},
 		Anticheat: AnticheatConfig{
-			Speed:       SpeedConfig{Enabled: true, MaxSpeed: 0.7, Violations: 10},
-			Fly:         FlyConfig{Enabled: true, Violations: 5},
-			NoFall:      NoFallConfig{Enabled: true, Violations: 5},
-			Reach:       ReachConfig{Enabled: true, MaxReach: 3.1, Violations: 7},
-			KillAura:    KillAuraConfig{Enabled: true, Violations: 1},
-			KillAuraB:   KillAuraBConfig{Enabled: true, Violations: 5},
-			AutoClicker: AutoClickerConfig{Enabled: true, MaxCPS: 20, Violations: 20},
-			Aim:         AimConfig{Enabled: true, Violations: 20},
-			BadPacket:   BadPacketConfig{Enabled: true, Violations: 1},
-			BadPacketB:  BadPacketBConfig{Enabled: true, Violations: 1},
-			BadPacketC:  BadPacketCConfig{Enabled: true, Violations: 1},
-			Timer:       TimerConfig{Enabled: true, MaxRatePS: 25, Violations: 5},
+			Speed:        SpeedConfig{Enabled: true, MaxSpeed: 0.7, Violations: 10},
+			Fly:          FlyConfig{Enabled: true, Violations: 5},
+			NoFall:       NoFallConfig{Enabled: true, Violations: 5},
+			Reach:        ReachConfig{Enabled: true, MaxReach: 3.1, Violations: 7},
+			KillAura:     KillAuraConfig{Enabled: true, Violations: 1},
+			KillAuraB:    KillAuraBConfig{Enabled: true, Violations: 5},
+			AutoClicker:  AutoClickerConfig{Enabled: true, MaxCPS: 20, Violations: 20},
+			AutoClickerB: AutoClickerBConfig{Enabled: true, StdDevThreshold: 5.0, MinSamples: 8, Violations: 15},
+			Aim:          AimConfig{Enabled: true, Violations: 20},
+			BadPacket:    BadPacketConfig{Enabled: true, Violations: 1},
+			BadPacketB:   BadPacketBConfig{Enabled: true, Violations: 1},
+			BadPacketC:   BadPacketCConfig{Enabled: true, Violations: 1},
+			Timer:        TimerConfig{Enabled: true, MaxRatePS: 25, Violations: 5},
 		},
 	}
 }

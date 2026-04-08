@@ -489,6 +489,35 @@ func (p *Player) CPS() int {
 	return count
 }
 
+// ClickIntervalStdDev computes the standard deviation of the inter-click
+// interval times (in milliseconds) over the rolling one-second click window.
+// It returns (stdDev, n) where n is the number of intervals measured.
+// Returns (0, 0) when fewer than 3 timestamps are available.
+// Used by AutoClicker/B to detect unnaturally regular clicking patterns.
+func (p *Player) ClickIntervalStdDev() (stdDevMs float64, n int) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if len(p.ClickTimestamps) < 3 {
+		return 0, 0
+	}
+	intervals := make([]float64, len(p.ClickTimestamps)-1)
+	for i := 1; i < len(p.ClickTimestamps); i++ {
+		intervals[i-1] = float64(p.ClickTimestamps[i].Sub(p.ClickTimestamps[i-1]).Milliseconds())
+	}
+	mean := 0.0
+	for _, v := range intervals {
+		mean += v
+	}
+	mean /= float64(len(intervals))
+	variance := 0.0
+	for _, v := range intervals {
+		d := v - mean
+		variance += d * d
+	}
+	variance /= float64(len(intervals))
+	return math.Sqrt(variance), len(intervals)
+}
+
 // LastAttackInfo returns the time and target UUID of the most recent attack.
 func (p *Player) LastAttackInfo() (time.Time, uuid.UUID) {
 	p.mu.RLock()

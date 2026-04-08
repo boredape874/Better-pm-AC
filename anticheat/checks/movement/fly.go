@@ -9,8 +9,8 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// flyGraceTicks is the number of consecutive airborne ticks that are always
-// exempted from the fly check. This covers the full natural jump arc:
+// flyGraceTicks is the base number of consecutive airborne ticks that are
+// always exempted from the fly check. This covers the full natural jump arc:
 // - Bedrock jump peak is around tick 5-6 (Y velocity ~0.02 b/tick at apex).
 // - After the peak the player falls with growing negative Y velocity.
 // - A normal ground-level jump lasts ~12 ticks; 20 ticks is well clear.
@@ -18,6 +18,13 @@ import (
 // This mirrors Oomph's simulationIsReliable() which refuses to issue
 // corrections for the first several ticks after a state change.
 const flyGraceTicks = 20
+
+// flyJumpBoostGracePerLevel is the additional grace ticks granted per level of
+// the JumpBoost effect. JumpBoost I extends the jump arc by roughly 5 ticks;
+// each subsequent level adds another 5 ticks on top.
+// Without this adjustment the check produces false positives when a player
+// with JumpBoost has a longer-than-normal jump arc.
+const flyJumpBoostGracePerLevel = 5
 
 // flyMinHoverTicks is the minimum number of consecutive ticks with near-zero
 // Y displacement that must be observed (after the grace period) before flagging.
@@ -86,13 +93,20 @@ func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 		return false, ""
 	}
 	// Grace period: skip the entire jump arc before starting to inspect.
-	if airTicks <= flyGraceTicks {
+	// Extend the grace period proportionally when JumpBoost is active, since
+	// the effect increases jump height and thus arc duration. Oomph accounts
+	// for this by lengthening the simulation-reliable window for JumpBoost.
+	graceTicks := flyGraceTicks
+	if amp, active := p.EffectAmplifier(packet.EffectJumpBoost); active {
+		graceTicks += int(amp+1) * flyJumpBoostGracePerLevel
+	}
+	if airTicks <= graceTicks {
 		return false, ""
 	}
 	// Flag when the Y displacement has been near zero for enough ticks to rule
 	// out a jump apex or other transient near-zero Y-velocity scenario.
 	if hoverTicks >= flyMinHoverTicks {
-		return true, fmt.Sprintf("air_ticks=%d hover_ticks=%d", airTicks, hoverTicks)
+		return true, fmt.Sprintf("air_ticks=%d hover_ticks=%d grace=%d", airTicks, hoverTicks, graceTicks)
 	}
 	return false, ""
 }

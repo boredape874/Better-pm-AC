@@ -24,18 +24,19 @@ type DetectionMetadata = meta.DetectionMetadata
 
 // playerDetections holds one *DetectionMetadata copy per check, per player.
 type playerDetections struct {
-	speed       *DetectionMetadata
-	fly         *DetectionMetadata
-	noFall      *DetectionMetadata
-	reach       *DetectionMetadata
-	killAura    *DetectionMetadata
-	killAuraB   *DetectionMetadata
-	autoClicker *DetectionMetadata
-	aim         *DetectionMetadata
-	badPacket   *DetectionMetadata
-	badPacketB  *DetectionMetadata
-	badPacketC  *DetectionMetadata
-	timer       *DetectionMetadata
+	speed        *DetectionMetadata
+	fly          *DetectionMetadata
+	noFall       *DetectionMetadata
+	reach        *DetectionMetadata
+	killAura     *DetectionMetadata
+	killAuraB    *DetectionMetadata
+	autoClicker  *DetectionMetadata
+	autoClickerB *DetectionMetadata
+	aim          *DetectionMetadata
+	badPacket    *DetectionMetadata
+	badPacketB   *DetectionMetadata
+	badPacketC   *DetectionMetadata
+	timer        *DetectionMetadata
 }
 
 // Manager coordinates all anti-cheat checks and the player registry.
@@ -48,18 +49,19 @@ type Manager struct {
 	detections map[uuid.UUID]*playerDetections
 
 	// Stateless check instances
-	speed       *movement.SpeedCheck
-	fly         *movement.FlyCheck
-	noFall      *movement.NoFallCheck
-	reach       *combat.ReachCheck
-	killAura    *combat.KillAuraCheck
-	killAuraB   *combat.KillAuraBCheck
-	autoClicker *combat.AutoClickerCheck
-	aim         *combat.AimCheck
-	badPacket   *pkt.BadPacketCheck
-	badPacketB  *pkt.BadPacketBCheck
-	badPacketC  *pkt.BadPacketCCheck
-	timer       *movement.TimerCheck
+	speed        *movement.SpeedCheck
+	fly          *movement.FlyCheck
+	noFall       *movement.NoFallCheck
+	reach        *combat.ReachCheck
+	killAura     *combat.KillAuraCheck
+	killAuraB    *combat.KillAuraBCheck
+	autoClicker  *combat.AutoClickerCheck
+	autoClickerB *combat.AutoClickerBCheck
+	aim          *combat.AimCheck
+	badPacket    *pkt.BadPacketCheck
+	badPacketB   *pkt.BadPacketBCheck
+	badPacketC   *pkt.BadPacketCCheck
+	timer        *movement.TimerCheck
 
 	// KickFunc is called when a player should be disconnected.
 	KickFunc func(id uuid.UUID, reason string)
@@ -68,39 +70,41 @@ type Manager struct {
 // NewManager creates a Manager ready to process packets.
 func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 	return &Manager{
-		cfg:         cfg,
-		log:         log,
-		players:     make(map[uuid.UUID]*data.Player),
-		detections:  make(map[uuid.UUID]*playerDetections),
-		speed:       movement.NewSpeedCheck(cfg.Speed),
-		fly:         movement.NewFlyCheck(cfg.Fly),
-		noFall:      movement.NewNoFallCheck(cfg.NoFall),
-		reach:       combat.NewReachCheck(cfg.Reach),
-		killAura:    combat.NewKillAuraCheck(cfg.KillAura),
-		killAuraB:   combat.NewKillAuraBCheck(cfg.KillAuraB),
-		autoClicker: combat.NewAutoClickerCheck(cfg.AutoClicker),
-		aim:         combat.NewAimCheck(cfg.Aim),
-		badPacket:   pkt.NewBadPacketCheck(cfg.BadPacket),
-		badPacketB:  pkt.NewBadPacketBCheck(cfg.BadPacketB),
-		badPacketC:  pkt.NewBadPacketCCheck(cfg.BadPacketC),
-		timer:       movement.NewTimerCheck(cfg.Timer),
+		cfg:          cfg,
+		log:          log,
+		players:      make(map[uuid.UUID]*data.Player),
+		detections:   make(map[uuid.UUID]*playerDetections),
+		speed:        movement.NewSpeedCheck(cfg.Speed),
+		fly:          movement.NewFlyCheck(cfg.Fly),
+		noFall:       movement.NewNoFallCheck(cfg.NoFall),
+		reach:        combat.NewReachCheck(cfg.Reach),
+		killAura:     combat.NewKillAuraCheck(cfg.KillAura),
+		killAuraB:    combat.NewKillAuraBCheck(cfg.KillAuraB),
+		autoClicker:  combat.NewAutoClickerCheck(cfg.AutoClicker),
+		autoClickerB: combat.NewAutoClickerBCheck(cfg.AutoClickerB),
+		aim:          combat.NewAimCheck(cfg.Aim),
+		badPacket:    pkt.NewBadPacketCheck(cfg.BadPacket),
+		badPacketB:   pkt.NewBadPacketBCheck(cfg.BadPacketB),
+		badPacketC:   pkt.NewBadPacketCCheck(cfg.BadPacketC),
+		timer:        movement.NewTimerCheck(cfg.Timer),
 	}
 }
 
 func (m *Manager) newPlayerDetections() *playerDetections {
 	return &playerDetections{
-		speed:       m.speed.DefaultMetadata(),
-		fly:         m.fly.DefaultMetadata(),
-		noFall:      m.noFall.DefaultMetadata(),
-		reach:       m.reach.DefaultMetadata(),
-		killAura:    m.killAura.DefaultMetadata(),
-		killAuraB:   m.killAuraB.DefaultMetadata(),
-		autoClicker: m.autoClicker.DefaultMetadata(),
-		aim:         m.aim.DefaultMetadata(),
-		badPacket:   m.badPacket.DefaultMetadata(),
-		badPacketB:  m.badPacketB.DefaultMetadata(),
-		badPacketC:  m.badPacketC.DefaultMetadata(),
-		timer:       m.timer.DefaultMetadata(),
+		speed:        m.speed.DefaultMetadata(),
+		fly:          m.fly.DefaultMetadata(),
+		noFall:       m.noFall.DefaultMetadata(),
+		reach:        m.reach.DefaultMetadata(),
+		killAura:     m.killAura.DefaultMetadata(),
+		killAuraB:    m.killAuraB.DefaultMetadata(),
+		autoClicker:  m.autoClicker.DefaultMetadata(),
+		autoClickerB: m.autoClickerB.DefaultMetadata(),
+		aim:          m.aim.DefaultMetadata(),
+		badPacket:    m.badPacket.DefaultMetadata(),
+		badPacketB:   m.badPacketB.DefaultMetadata(),
+		badPacketC:   m.badPacketC.DefaultMetadata(),
+		timer:        m.timer.DefaultMetadata(),
 	}
 }
 
@@ -344,7 +348,7 @@ func (m *Manager) OnAttack(attackerID, targetID uuid.UUID, targetRID uint64) {
 		det.killAura.Pass(1.0)
 	}
 
-	// AutoClicker/A
+	// AutoClicker/A: CPS limit.
 	// Pass() is called when CPS is within the allowed limit so that the buffer
 	// decays during legitimate play, preventing false positives from brief
 	// bursts that occurred before the player settled back to a normal rate.
@@ -354,6 +358,17 @@ func (m *Manager) OnAttack(attackerID, targetID uuid.UUID, targetRID uint64) {
 		}
 	} else {
 		det.autoClicker.Pass(0.5)
+	}
+
+	// AutoClicker/B: click interval regularity.
+	// Autoclickers produce suspiciously uniform inter-click intervals (std dev
+	// close to 0 ms). Human clicks have naturally high variance (> ~15 ms).
+	if flagged, info := m.autoClickerB.Check(p); flagged {
+		if det.autoClickerB.Fail(tick) {
+			m.handleViolation(p, m.autoClickerB, det.autoClickerB, info)
+		}
+	} else {
+		det.autoClickerB.Pass(0.3)
 	}
 }
 
