@@ -29,6 +29,7 @@ type AnticheatConfig struct {
 	NoFall      NoFallConfig      `toml:"nofall"`
 	Reach       ReachConfig       `toml:"reach"`
 	KillAura    KillAuraConfig    `toml:"killaura"`
+	KillAuraB   KillAuraBConfig   `toml:"killaura_b"`
 	AutoClicker AutoClickerConfig `toml:"autoclicker"`
 	Aim         AimConfig         `toml:"aim"`
 	BadPacket   BadPacketConfig   `toml:"badpacket"`
@@ -64,6 +65,12 @@ type ReachConfig struct {
 
 // KillAuraConfig configures the KillAura/A check.
 type KillAuraConfig struct {
+	Enabled    bool `toml:"enabled"`
+	Violations int  `toml:"violations"`
+}
+
+// KillAuraBConfig configures the KillAura/B check (angle-based FOV detection).
+type KillAuraBConfig struct {
 	Enabled    bool `toml:"enabled"`
 	Violations int  `toml:"violations"`
 }
@@ -116,6 +123,7 @@ func Default() Config {
 			NoFall:      NoFallConfig{Enabled: true, Violations: 5},
 			Reach:       ReachConfig{Enabled: true, MaxReach: 3.1, Violations: 7},
 			KillAura:    KillAuraConfig{Enabled: true, Violations: 1},
+			KillAuraB:   KillAuraBConfig{Enabled: true, Violations: 5},
 			AutoClicker: AutoClickerConfig{Enabled: true, MaxCPS: 20, Violations: 20},
 			Aim:         AimConfig{Enabled: true, Violations: 20},
 			BadPacket:   BadPacketConfig{Enabled: true, Violations: 1},

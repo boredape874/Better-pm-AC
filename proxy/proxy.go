@@ -97,6 +97,7 @@ func (p *Proxy) handleClient(ctx context.Context, client *minecraft.Conn) {
 	defer p.ac.RemovePlayer(id)
 
 	sess := newSession(id, client, serverConn)
+	sess.EntityRID = serverConn.GameData().EntityRuntimeID
 	p.addSession(sess)
 	defer p.removeSession(id)
 
@@ -261,6 +262,22 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 			// can apply creative-mode exemptions (fly, speed).
 			if pl := p.ac.GetPlayer(sess.ID); pl != nil {
 				pl.SetGameMode(typed.GameType)
+			}
+
+		case *packet.MobEffect:
+			// A potion effect was added, modified, or removed for an entity.
+			// We only care about effects on the player's own entity (sess.EntityRID)
+			// so that checks can adjust their limits accordingly (e.g. Speed/A
+			// increases MaxSpeed when the player has the Speed effect).
+			if typed.EntityRuntimeID == sess.EntityRID {
+				if pl := p.ac.GetPlayer(sess.ID); pl != nil {
+					switch typed.Operation {
+					case packet.MobEffectAdd, packet.MobEffectModify:
+						pl.AddEffect(typed.EffectType, typed.Amplifier)
+					case packet.MobEffectRemove:
+						pl.RemoveEffect(typed.EffectType)
+					}
+				}
 			}
 		}
 

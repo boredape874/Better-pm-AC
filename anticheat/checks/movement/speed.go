@@ -6,6 +6,7 @@ import (
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
 	"github.com/boredape874/Better-pm-AC/config"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
 // sprintSpeedMultiplier is the ratio of sprinting speed to walking speed in
@@ -15,6 +16,11 @@ const sprintSpeedMultiplier = float32(1.30)
 
 // sneakSpeedMultiplier is the ratio of sneaking speed to walking speed.
 const sneakSpeedMultiplier = float32(0.30)
+
+// speedEffectBonus is the speed bonus per amplifier level for the Speed potion
+// effect. Speed I (amplifier=0) adds +20%, Speed II (amplifier=1) adds +40%,
+// etc. Formula: maxSpeed *= (1 + speedEffectBonus * (amplifier + 1)).
+const speedEffectBonus = float32(0.20)
 
 // SpeedCheck flags players whose horizontal movement exceeds the configured
 // limit per tick. Velocity is now a raw positional delta (blocks/tick) rather
@@ -50,10 +56,15 @@ func (c *SpeedCheck) DefaultMetadata() *meta.DetectionMetadata {
 
 // Check evaluates the player's horizontal displacement in blocks/tick.
 // The config MaxSpeed field is already expressed in blocks/tick (default 0.7).
-// The effective limit is scaled by sprint/sneak state so that legitimate
-// movement is never penalised.
+// The effective limit is scaled by sprint/sneak state and active Speed potion
+// effects so that legitimate movement is never penalised.
 func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
+		return false, ""
+	}
+	// Creative players can legitimately move at any speed; exempt them
+	// entirely to match Oomph's creative-mode exemption in movement checks.
+	if p.IsCreative() {
 		return false, ""
 	}
 	// Only check on-ground movement.  Aerial speed is complex (knockback,
@@ -72,6 +83,13 @@ func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
 		maxSpeed *= sprintSpeedMultiplier
 	case sneaking:
 		maxSpeed *= sneakSpeedMultiplier
+	}
+
+	// Adjust for an active Speed potion effect (effect type 1 = Speed).
+	// Speed I (amplifier 0) grants +20%, Speed II (amplifier 1) grants +40%, etc.
+	// Mirrors Oomph's attribute-based limit adjustment.
+	if amp, active := p.EffectAmplifier(packet.EffectSpeed); active {
+		maxSpeed *= 1.0 + speedEffectBonus*float32(amp+1)
 	}
 
 	if speed > maxSpeed {

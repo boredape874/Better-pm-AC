@@ -29,6 +29,7 @@ type playerDetections struct {
 	noFall      *DetectionMetadata
 	reach       *DetectionMetadata
 	killAura    *DetectionMetadata
+	killAuraB   *DetectionMetadata
 	autoClicker *DetectionMetadata
 	aim         *DetectionMetadata
 	badPacket   *DetectionMetadata
@@ -51,6 +52,7 @@ type Manager struct {
 	noFall      *movement.NoFallCheck
 	reach       *combat.ReachCheck
 	killAura    *combat.KillAuraCheck
+	killAuraB   *combat.KillAuraBCheck
 	autoClicker *combat.AutoClickerCheck
 	aim         *combat.AimCheck
 	badPacket   *pkt.BadPacketCheck
@@ -73,6 +75,7 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		noFall:      movement.NewNoFallCheck(cfg.NoFall),
 		reach:       combat.NewReachCheck(cfg.Reach),
 		killAura:    combat.NewKillAuraCheck(cfg.KillAura),
+		killAuraB:   combat.NewKillAuraBCheck(cfg.KillAuraB),
 		autoClicker: combat.NewAutoClickerCheck(cfg.AutoClicker),
 		aim:         combat.NewAimCheck(cfg.Aim),
 		badPacket:   pkt.NewBadPacketCheck(cfg.BadPacket),
@@ -88,6 +91,7 @@ func (m *Manager) newPlayerDetections() *playerDetections {
 		noFall:      m.noFall.DefaultMetadata(),
 		reach:       m.reach.DefaultMetadata(),
 		killAura:    m.killAura.DefaultMetadata(),
+		killAuraB:   m.killAuraB.DefaultMetadata(),
 		autoClicker: m.autoClicker.DefaultMetadata(),
 		aim:         m.aim.DefaultMetadata(),
 		badPacket:   m.badPacket.DefaultMetadata(),
@@ -306,6 +310,15 @@ func (m *Manager) OnAttack(attackerID, targetID uuid.UUID, targetRID uint64) {
 			}
 		} else {
 			det.reach.Pass(0.0015)
+		}
+
+		// KillAura/B: flag if the target is outside the player's FOV.
+		if flagged, info := m.killAuraB.Check(p, targetPos); flagged {
+			if det.killAuraB.Fail(tick) {
+				m.handleViolation(p, m.killAuraB, det.killAuraB, info)
+			}
+		} else {
+			det.killAuraB.Pass(1.0)
 		}
 	}
 

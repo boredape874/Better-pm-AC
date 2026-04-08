@@ -106,6 +106,12 @@ type Player struct {
 	// corresponding EntityRuntimeID for entity removal bookkeeping.
 	uniqueToRID map[int64]uint64
 
+	// activeEffects maps effect type ID (e.g. packet.EffectSpeed = 1) to
+	// the amplifier value (0-based: Speed I = 0, Speed II = 1).
+	// Populated from server-sent MobEffect packets. Only effects targeting
+	// the player's own entity are recorded.
+	activeEffects map[int32]int32
+
 	// posInitialised is false until the first UpdatePosition call has been
 	// processed. The initial Position is the zero vector, so the first
 	// velocity computation would produce a teleport-sized spike equal to the
@@ -118,11 +124,12 @@ type Player struct {
 // NewPlayer creates a fresh Player for the given UUID and username.
 func NewPlayer(id uuid.UUID, username string) *Player {
 	return &Player{
-		UUID:        id,
-		Username:    username,
-		Violations:  make(map[string]int),
-		entityPos:   make(map[uint64]mgl32.Vec3),
-		uniqueToRID: make(map[int64]uint64),
+		UUID:          id,
+		Username:      username,
+		Violations:    make(map[string]int),
+		entityPos:     make(map[uint64]mgl32.Vec3),
+		uniqueToRID:   make(map[int64]uint64),
+		activeEffects: make(map[int32]int32),
 	}
 }
 
@@ -168,6 +175,15 @@ func (p *Player) RotationSnapshot() (yawDelta, pitchDelta float32) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.RotationDelta[0], p.RotationDelta[1]
+}
+
+// RotationAbsolute returns the player's current absolute yaw and pitch values
+// (i.e. the latest rotation from PlayerAuthInput, not deltas).
+// Used by KillAura/B to compute the look-direction vector.
+func (p *Player) RotationAbsolute() (yaw, pitch float32) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.Rotation[0], p.Rotation[1]
 }
 
 // UpdatePosition records a new position and computes the per-packet velocity
@@ -479,4 +495,33 @@ func (p *Player) ViolationCount(checkName string) int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.Violations[checkName]
+}
+
+// AddEffect records an active potion effect (or modifies an existing one).
+// effectType is the effect ID (e.g. packet.EffectSpeed = 1).
+// amplifier is 0-based (0 = level I, 1 = level II, etc.).
+// Called from the serverToClient goroutine when a MobEffect Add/Modify packet
+// arrives for the player's own entity.
+func (p *Player) AddEffect(effectType, amplifier int32) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.activeEffects[effectType] = amplifier
+}
+
+// RemoveEffect removes a potion effect from the active set.
+// Called from the serverToClient goroutine when a MobEffect Remove packet
+// arrives for the player's own entity.
+func (p *Player) RemoveEffect(effectType int32) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.activeEffects, effectType)
+}
+
+// EffectAmplifier returns the amplifier of the given effect type and whether
+// the effect is currently active. effectType is the effect ID (e.g. 1 = Speed).
+func (p *Player) EffectAmplifier(effectType int32) (amplifier int32, active bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	amp, ok := p.activeEffects[effectType]
+	return amp, ok
 }
