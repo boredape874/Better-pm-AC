@@ -57,8 +57,18 @@ func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
+	// Creative players can legitimately fly; exempt them entirely.
+	if p.IsCreative() {
+		return false, ""
+	}
 	airborne, _, airTicks, hoverTicks := p.FlySnapshot()
 	if !airborne {
+		return false, ""
+	}
+	// Players who are swimming have near-zero Y velocity by design; exempt them
+	// to avoid false positives when treading water or swimming horizontally.
+	_, _, inWater := p.InputSnapshot()
+	if inWater {
 		return false, ""
 	}
 	// Grace period: skip the entire jump arc before starting to inspect.

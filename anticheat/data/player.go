@@ -65,6 +65,16 @@ type Player struct {
 	// Aim/A is only applicable to mouse clients (Oomph: if InputMode != Mouse { return }).
 	InputMode uint32
 
+	// GameMode is the player's current game type, updated from SetPlayerGameType
+	// server packets.  1 = Creative.  Fly/A and Speed/A exempt creative players.
+	GameMode int32
+
+	// TeleportGrace is set to true when the client reports InputFlagHandledTeleport,
+	// indicating it has just processed a server-sent teleport.  The flag is
+	// consumed (reset to false) by ConsumeTeleportGrace at the start of each
+	// OnInput processing cycle so that Speed/A skips exactly one tick.
+	TeleportGrace bool
+
 	// Input state flags derived from PlayerAuthInput.InputData each tick.
 	// Sprinting and Sneaking affect the expected horizontal speed limits.
 	// InWater indicates the player is swimming / auto-jumping in water, which
@@ -78,6 +88,11 @@ type Player struct {
 	ClickTimestamps  []time.Time
 	LastAttackTime   time.Time
 	LastAttackTarget uuid.UUID
+
+	// inputTimestamps records the wall-clock arrival time of each
+	// PlayerAuthInput packet within a rolling one-second window.
+	// Timer/A uses this to detect faster-than-normal packet rates.
+	inputTimestamps []time.Time
 
 	// Entity position table (Reach/A)
 	// entityPos maps server-assigned entity runtime IDs to their last known
@@ -252,6 +267,70 @@ func (p *Player) SetInputMode(mode uint32) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.InputMode = mode
+}
+
+// SetGameMode records the player's current game type, received from the server
+// via SetPlayerGameType.  A value of 1 (GameTypeCreative) causes Fly/A and
+// Speed/A to exempt the player from detection.
+func (p *Player) SetGameMode(mode int32) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.GameMode = mode
+}
+
+// IsCreative returns true when the player is in Creative mode (GameType == 1).
+func (p *Player) IsCreative() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.GameMode == 1
+}
+
+// SetTeleportGrace marks that the client has just handled a server teleport.
+// Speed/A will skip the next OnInput tick to avoid a false-positive spike.
+func (p *Player) SetTeleportGrace() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.TeleportGrace = true
+}
+
+// ConsumeTeleportGrace returns whether a teleport grace is pending and resets
+// the flag.  Called once at the start of each OnInput processing cycle.
+func (p *Player) ConsumeTeleportGrace() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	v := p.TeleportGrace
+	p.TeleportGrace = false
+	return v
+}
+
+// RecordInputTime appends the current wall-clock time to the rolling
+// inputTimestamps list and prunes entries older than one second.
+// Called once per PlayerAuthInput packet arrival for Timer/A.
+func (p *Player) RecordInputTime() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := time.Now()
+	cutoff := now.Add(-cpsWindow)
+	start := 0
+	for start < len(p.inputTimestamps) && p.inputTimestamps[start].Before(cutoff) {
+		start++
+	}
+	p.inputTimestamps = append(p.inputTimestamps[start:], now)
+}
+
+// InputRate returns the number of PlayerAuthInput packets recorded in the last
+// second, used by Timer/A to detect a higher-than-normal packet rate.
+func (p *Player) InputRate() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	cutoff := time.Now().Add(-cpsWindow)
+	count := 0
+	for _, t := range p.inputTimestamps {
+		if !t.Before(cutoff) {
+			count++
+		}
+	}
+	return count
 }
 
 // SetInputFlags stores per-tick boolean state flags derived from

@@ -32,6 +32,8 @@ type AnticheatConfig struct {
 	AutoClicker AutoClickerConfig `toml:"autoclicker"`
 	Aim         AimConfig         `toml:"aim"`
 	BadPacket   BadPacketConfig   `toml:"badpacket"`
+	BadPacketB  BadPacketBConfig  `toml:"badpacket_b"`
+	Timer       TimerConfig       `toml:"timer"`
 }
 
 // SpeedConfig configures the Speed/A check.
@@ -85,6 +87,22 @@ type BadPacketConfig struct {
 	Violations int  `toml:"violations"`
 }
 
+// BadPacketBConfig configures the BadPacket/B check (pitch range validation).
+type BadPacketBConfig struct {
+	Enabled    bool `toml:"enabled"`
+	Violations int  `toml:"violations"`
+}
+
+// TimerConfig configures the Timer/A check.
+// MaxRatePS is the maximum number of PlayerAuthInput packets allowed per second.
+// At 20 TPS the expected rate is exactly 20; 25 gives a 25% tolerance for
+// server-side jitter while reliably catching Timer hacks (≥ 1.25×).
+type TimerConfig struct {
+	Enabled    bool `toml:"enabled"`
+	MaxRatePS  int  `toml:"max_rate_ps"`
+	Violations int  `toml:"violations"`
+}
+
 // Default returns a Config populated with sensible defaults.
 func Default() Config {
 	return Config{
@@ -101,6 +119,8 @@ func Default() Config {
 			AutoClicker: AutoClickerConfig{Enabled: true, MaxCPS: 20, Violations: 20},
 			Aim:         AimConfig{Enabled: true, Violations: 20},
 			BadPacket:   BadPacketConfig{Enabled: true, Violations: 1},
+			BadPacketB:  BadPacketBConfig{Enabled: true, Violations: 1},
+			Timer:       TimerConfig{Enabled: true, MaxRatePS: 25, Violations: 5},
 		},
 	}
 }

@@ -32,6 +32,8 @@ type playerDetections struct {
 	autoClicker *DetectionMetadata
 	aim         *DetectionMetadata
 	badPacket   *DetectionMetadata
+	badPacketB  *DetectionMetadata
+	timer       *DetectionMetadata
 }
 
 // Manager coordinates all anti-cheat checks and the player registry.
@@ -52,6 +54,8 @@ type Manager struct {
 	autoClicker *combat.AutoClickerCheck
 	aim         *combat.AimCheck
 	badPacket   *pkt.BadPacketCheck
+	badPacketB  *pkt.BadPacketBCheck
+	timer       *movement.TimerCheck
 
 	// KickFunc is called when a player should be disconnected.
 	KickFunc func(id uuid.UUID, reason string)
@@ -72,6 +76,8 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		autoClicker: combat.NewAutoClickerCheck(cfg.AutoClicker),
 		aim:         combat.NewAimCheck(cfg.Aim),
 		badPacket:   pkt.NewBadPacketCheck(cfg.BadPacket),
+		badPacketB:  pkt.NewBadPacketBCheck(cfg.BadPacketB),
+		timer:       movement.NewTimerCheck(cfg.Timer),
 	}
 }
 
@@ -85,6 +91,8 @@ func (m *Manager) newPlayerDetections() *playerDetections {
 		autoClicker: m.autoClicker.DefaultMetadata(),
 		aim:         m.aim.DefaultMetadata(),
 		badPacket:   m.badPacket.DefaultMetadata(),
+		badPacketB:  m.badPacketB.DefaultMetadata(),
+		timer:       m.timer.DefaultMetadata(),
 	}
 }
 
@@ -157,7 +165,11 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 		return
 	}
 
-	// BadPacket check runs before UpdateTick so it can compare old vs new tick.
+	// Record arrival time for Timer/A before any state updates.
+	p.RecordInputTime()
+
+	// BadPacket/A (tick validation) runs before UpdateTick so it can compare
+	// the incoming tick against the previously stored simulation frame.
 	if flagged, info := m.badPacket.Check(p, tick); flagged {
 		if det.badPacket.Fail(int64(tick)) {
 			m.handleViolation(p, m.badPacket, det.badPacket, info)
@@ -169,20 +181,45 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 	p.UpdatePosition(pos, onGround)
 	p.SetInputMode(inputMode)
 
-	// Speed/A
-	if flagged, info := m.speed.Check(p); flagged {
-		if det.speed.Fail(int64(tick)) {
-			m.handleViolation(p, m.speed, det.speed, info)
+	// BadPacket/B: pitch range validation.
+	if flagged, info := m.badPacketB.Check(p, pitch); flagged {
+		if det.badPacketB.Fail(int64(tick)) {
+			m.handleViolation(p, m.badPacketB, det.badPacketB, info)
 		}
-	} else {
-		det.speed.Pass(0.05)
 	}
 
-	// Fly/A
+	// Timer/A: high-rate packet detection.
+	if flagged, info := m.timer.Check(p); flagged {
+		if det.timer.Fail(int64(tick)) {
+			m.handleViolation(p, m.timer, det.timer, info)
+		}
+	} else {
+		det.timer.Pass(0.05)
+	}
+
+	// Consume teleport grace: if the client just handled a server teleport,
+	// skip position-based movement checks for this tick to avoid a false-positive
+	// velocity spike from the position discontinuity.
+	teleportGrace := p.ConsumeTeleportGrace()
+
+	// Speed/A — skip if teleporting or in creative mode.
+	if !teleportGrace {
+		if flagged, info := m.speed.Check(p); flagged {
+			if det.speed.Fail(int64(tick)) {
+				m.handleViolation(p, m.speed, det.speed, info)
+			}
+		} else {
+			det.speed.Pass(0.05)
+		}
+	}
+
+	// Fly/A — creative and water exemptions are handled inside Check.
 	if flagged, info := m.fly.Check(p); flagged {
 		if det.fly.Fail(int64(tick)) {
 			m.handleViolation(p, m.fly, det.fly, info)
 		}
+	} else {
+		det.fly.Pass(0.5)
 	}
 
 	// NoFall/A
@@ -190,6 +227,8 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 		if det.noFall.Fail(int64(tick)) {
 			m.handleViolation(p, m.noFall, det.noFall, info)
 		}
+	} else {
+		det.noFall.Pass(0.5)
 	}
 
 	// Aim/A
@@ -212,25 +251,32 @@ func (m *Manager) OnMove(id uuid.UUID, pos mgl32.Vec3, onGround bool) {
 
 	p.UpdatePosition(pos, onGround)
 	tick := int64(p.SimFrame())
+	teleportGrace := p.ConsumeTeleportGrace()
 
-	if flagged, info := m.speed.Check(p); flagged {
-		if det.speed.Fail(tick) {
-			m.handleViolation(p, m.speed, det.speed, info)
+	if !teleportGrace {
+		if flagged, info := m.speed.Check(p); flagged {
+			if det.speed.Fail(tick) {
+				m.handleViolation(p, m.speed, det.speed, info)
+			}
+		} else {
+			det.speed.Pass(0.05)
 		}
-	} else {
-		det.speed.Pass(0.05)
 	}
 
 	if flagged, info := m.fly.Check(p); flagged {
 		if det.fly.Fail(tick) {
 			m.handleViolation(p, m.fly, det.fly, info)
 		}
+	} else {
+		det.fly.Pass(0.5)
 	}
 
 	if flagged, info := m.noFall.Check(p); flagged {
 		if det.noFall.Fail(tick) {
 			m.handleViolation(p, m.noFall, det.noFall, info)
 		}
+	} else {
+		det.noFall.Pass(0.5)
 	}
 }
 
@@ -268,6 +314,8 @@ func (m *Manager) OnAttack(attackerID, targetID uuid.UUID, targetRID uint64) {
 		if det.killAura.Fail(tick) {
 			m.handleViolation(p, m.killAura, det.killAura, info)
 		}
+	} else {
+		det.killAura.Pass(1.0)
 	}
 
 	// AutoClicker/A

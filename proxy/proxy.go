@@ -145,6 +145,15 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 			// Apply input state to player data so checks can read it.
 			if pl := p.ac.GetPlayer(sess.ID); pl != nil {
 				pl.SetInputFlags(sprinting, sneaking, inWater)
+
+				// InputFlagHandledTeleport is set by the client after it has
+				// processed a server-sent teleport packet.  The next position
+				// will be at the teleport destination, producing a large
+				// velocity spike.  Mark a teleport grace so Speed/A skips
+				// this tick (mirrors Oomph's teleport exemption).
+				if typed.InputData.Load(packet.InputFlagHandledTeleport) {
+					pl.SetTeleportGrace()
+				}
 			}
 
 			// Pass InputMode so Aim/A can exempt touch/gamepad clients.
@@ -246,6 +255,13 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 		case *packet.RemoveActor:
 			// An entity has been removed from the world; clean up the table.
 			p.ac.RemoveEntity(sess.ID, typed.EntityUniqueID)
+
+		case *packet.SetPlayerGameType:
+			// The server changed the player's game mode. Record it so checks
+			// can apply creative-mode exemptions (fly, speed).
+			if pl := p.ac.GetPlayer(sess.ID); pl != nil {
+				pl.SetGameMode(typed.GameType)
+			}
 		}
 
 		if err := sess.Client.WritePacket(pk); err != nil {
