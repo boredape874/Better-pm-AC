@@ -23,7 +23,6 @@ type Detection = meta.Detection
 type DetectionMetadata = meta.DetectionMetadata
 
 // playerDetections holds one *DetectionMetadata copy per check, per player.
-// Mirrors Oomph's per-player detection-metadata model.
 type playerDetections struct {
 speed       *DetectionMetadata
 fly         *DetectionMetadata
@@ -44,7 +43,7 @@ mu         sync.RWMutex
 players    map[uuid.UUID]*data.Player
 detections map[uuid.UUID]*playerDetections
 
-// ── Stateless check instances ──────────────────────────────────────────
+// Stateless check instances
 speed       *movement.SpeedCheck
 fly         *movement.FlyCheck
 noFall      *movement.NoFallCheck
@@ -55,7 +54,6 @@ aim         *combat.AimCheck
 badPacket   *pkt.BadPacketCheck
 
 // KickFunc is called when a player should be disconnected.
-// The proxy layer injects this during initialisation.
 KickFunc func(id uuid.UUID, reason string)
 }
 
@@ -77,8 +75,6 @@ badPacket:   pkt.NewBadPacketCheck(cfg.BadPacket),
 }
 }
 
-// newPlayerDetections initialises per-player metadata from each check's
-// DefaultMetadata(), mirroring Oomph's detection-registration flow.
 func (m *Manager) newPlayerDetections() *playerDetections {
 return &playerDetections{
 speed:       m.speed.DefaultMetadata(),
@@ -121,12 +117,34 @@ defer m.mu.RUnlock()
 return m.detections[id]
 }
 
-// ── Events ────────────────────────────────────────────────────────────────────
+// UpdateEntityPos records the server-authoritative position of an entity.
+// Called from the serverToClient goroutine for AddPlayer, AddActor,
+// MovePlayer, and MoveActorAbsolute packets.
+func (m *Manager) UpdateEntityPos(playerID uuid.UUID, entityRID uint64, pos mgl32.Vec3) {
+if p := m.getPlayer(playerID); p != nil {
+p.UpdateEntityPos(entityRID, pos)
+}
+}
 
-// OnInput is called for every PlayerAuthInput packet (server-authoritative
-// movement mode). It updates simulation frame, rotation, and position, then
-// runs tick-level checks: Speed, Fly, NoFall, Aim, BadPacket.
-func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bool, yaw, pitch float32) {
+// MapEntityUID stores a uniqueID→runtimeID mapping for a non-player actor
+// so it can be cleaned up when RemoveActor is received.
+func (m *Manager) MapEntityUID(playerID uuid.UUID, uid int64, rid uint64) {
+if p := m.getPlayer(playerID); p != nil {
+p.MapEntityUID(uid, rid)
+}
+}
+
+// RemoveEntity removes an entity from a player's position table.
+// Called when the server sends a RemoveActor packet.
+func (m *Manager) RemoveEntity(playerID uuid.UUID, uid int64) {
+if p := m.getPlayer(playerID); p != nil {
+p.RemoveEntity(uid)
+}
+}
+
+// OnInput is called for every PlayerAuthInput packet.
+// inputMode is PlayerAuthInput.InputMode (1=Mouse, 2=Touch, 3=GamePad).
+func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bool, yaw, pitch float32, inputMode uint32) {
 p := m.getPlayer(id)
 det := m.getDet(id)
 if p == nil || det == nil {
@@ -143,6 +161,7 @@ m.handleViolation(p, m.badPacket, det.badPacket, info)
 p.UpdateTick(tick)
 p.UpdateRotation(yaw, pitch)
 p.UpdatePosition(pos, onGround)
+p.SetInputMode(inputMode)
 
 // Speed/A
 if flagged, info := m.speed.Check(p); flagged {
@@ -167,7 +186,7 @@ m.handleViolation(p, m.noFall, det.noFall, info)
 }
 }
 
-// Aim/A — three-valued return: (flagged, info, passAmount)
+// Aim/A
 if flagged, info, passAmount := m.aim.Check(p); flagged {
 if det.aim.Fail(int64(tick)) {
 m.handleViolation(p, m.aim, det.aim, info)
@@ -210,8 +229,10 @@ m.handleViolation(p, m.noFall, det.noFall, info)
 }
 
 // OnAttack is called when a player sends a UseItemOnEntity attack transaction.
-// targetPos is the last known position of the attacked entity.
-func (m *Manager) OnAttack(attackerID, targetID uuid.UUID, targetPos mgl32.Vec3) {
+// targetRID is the entity runtime ID of the attacked entity, used to look up
+// the server-authoritative position from the entity position table.
+// This replaces the broken ClickedPosition-based approach.
+func (m *Manager) OnAttack(attackerID, targetID uuid.UUID, targetRID uint64) {
 p := m.getPlayer(attackerID)
 det := m.getDet(attackerID)
 if p == nil || det == nil {
@@ -220,27 +241,30 @@ return
 
 tick := int64(p.SimFrame())
 
-// Record click for CPS and attack tracking.
 p.RecordClick()
 p.RecordAttack(targetID)
 
-// Reach/A
+// Reach/A: only run when we have a server-authoritative entity position.
+// If the entity is not in the table (e.g. the first attack before any
+// server position has been received), skip to avoid false positives.
+if targetPos, ok := p.EntityPos(targetRID); ok {
 if flagged, info := m.reach.Check(p, targetPos); flagged {
 if det.reach.Fail(tick) {
 m.handleViolation(p, m.reach, det.reach, info)
 }
 } else {
-det.reach.Pass(0.0015) // mirrors Oomph ReachA passive pass decrement
+det.reach.Pass(0.0015)
+}
 }
 
-// KillAura/A — swing-based
+// KillAura/A
 if flagged, info := m.killAura.Check(p); flagged {
 if det.killAura.Fail(tick) {
 m.handleViolation(p, m.killAura, det.killAura, info)
 }
 }
 
-// AutoClicker/A — CPS-based
+// AutoClicker/A
 if flagged, info := m.autoClicker.Check(p); flagged {
 if det.autoClicker.Fail(tick) {
 m.handleViolation(p, m.autoClicker, det.autoClicker, info)
@@ -248,24 +272,14 @@ m.handleViolation(p, m.autoClicker, det.autoClicker, info)
 }
 }
 
-// OnSwing is called when the client swings its arm:
-//   - packet.Animate with ActionType == AnimateActionSwingArm
-//   - PlayerAuthInput with InputFlagMissedSwing
-//   - LevelSoundEvent with SoundType == SoundEventAttackNoDamage
-//
-// Matches Oomph's swing tracking across Animate, LevelSoundEvent, and MissedSwing.
+// OnSwing records an arm-swing event.
 func (m *Manager) OnSwing(id uuid.UUID) {
-p := m.getPlayer(id)
-if p == nil {
-return
-}
+if p := m.getPlayer(id); p != nil {
 p.RecordSwing()
 }
-
-// ── Internal helpers ─────────────────────────────────────────────────────────
+}
 
 // handleViolation logs the violation and kicks when the threshold is reached.
-// Mirrors Oomph's FailDetection + HandlePunishment flow.
 func (m *Manager) handleViolation(p *data.Player, d Detection, meta *DetectionMetadata, extraInfo string) {
 m.log.Warn("violation detected",
 "player", p.Username,

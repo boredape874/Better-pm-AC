@@ -1,14 +1,36 @@
 package movement
 
 import (
-"github.com/boredape874/Better-pm-AC/anticheat/meta"
+"fmt"
+
 "github.com/boredape874/Better-pm-AC/anticheat/data"
+"github.com/boredape874/Better-pm-AC/anticheat/meta"
 "github.com/boredape874/Better-pm-AC/config"
 )
 
-// FlyCheck detects players hovering in mid-air (Y velocity near zero while
-// airborne), indicating use of a Fly cheat.
-// Implements anticheat.Detection.
+// flyGraceTicks is the number of consecutive airborne ticks that are always
+// exempted from the fly check. This covers the full natural jump arc:
+// - Bedrock jump peak is around tick 5-6 (Y velocity ~0.02 b/tick at apex).
+// - After the peak the player falls with growing negative Y velocity.
+// - A normal ground-level jump lasts ~12 ticks; 20 ticks is well clear.
+//
+// This mirrors Oomph's simulationIsReliable() which refuses to issue
+// corrections for the first several ticks after a state change.
+const flyGraceTicks = 20
+
+// flyMinHoverTicks is the minimum number of consecutive ticks with near-zero
+// Y displacement that must be observed (after the grace period) before flagging.
+// This prevents a single anomalous packet from causing a false positive.
+const flyMinHoverTicks = 5
+
+// FlyCheck detects players that hover in mid-air without falling.
+// It tracks two counters updated by data.Player.UpdatePosition:
+//   - AirTicks:   consecutive ticks airborne since last grounding.
+//   - HoverTicks: consecutive ticks where |dy| < hoverDeltaThreshold.
+//
+// A player is flagged only when BOTH thresholds are met, providing a robust
+// false-positive-free signal even at the jump apex where Y velocity briefly
+// approaches zero naturally.
 type FlyCheck struct {
 cfg config.FlyConfig
 }
@@ -17,7 +39,7 @@ func NewFlyCheck(cfg config.FlyConfig) *FlyCheck { return &FlyCheck{cfg: cfg} }
 
 func (*FlyCheck) Type() string        { return "Fly" }
 func (*FlyCheck) SubType() string     { return "A" }
-func (*FlyCheck) Description() string { return "Detects hovering in mid-air with near-zero Y velocity." }
+func (*FlyCheck) Description() string { return "Detects hovering via sustained near-zero Y delta while airborne." }
 func (*FlyCheck) Punishable() bool    { return true }
 
 func (c *FlyCheck) DefaultMetadata() *meta.DetectionMetadata {
@@ -28,23 +50,23 @@ MaxViolations: float64(c.cfg.Violations),
 }
 }
 
-func (*FlyCheck) Name() string { return "Fly/A" }
-
-// Check evaluates the player's vertical motion while airborne.
+// Check evaluates the airborne state using tick-based counters.
 func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 if !c.cfg.Enabled {
 return false, ""
 }
-airborne, yVel := p.FlySnapshot()
+airborne, _, airTicks, hoverTicks := p.FlySnapshot()
 if !airborne {
 return false, ""
 }
-// A very small absolute Y velocity (blocks/second) while airborne signals
-// hovering. A legitimately falling player accumulates ~0.08 b/s per tick
-// under normal gravity, so they will quickly exceed this threshold.
-const hoverThreshold = float32(0.08) // blocks/second
-if yVel > -hoverThreshold && yVel < hoverThreshold {
-return true, "hover_yvel=near_zero"
+// Grace period: skip the entire jump arc before starting to inspect.
+if airTicks <= flyGraceTicks {
+return false, ""
+}
+// Flag when the Y displacement has been near zero for enough ticks to rule
+// out a jump apex or other transient near-zero Y-velocity scenario.
+if hoverTicks >= flyMinHoverTicks {
+return true, fmt.Sprintf("air_ticks=%d hover_ticks=%d", airTicks, hoverTicks)
 }
 return false, ""
 }
