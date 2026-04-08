@@ -501,6 +501,17 @@ func (p *Player) InputSnapshot() (sprinting, sneaking, inWater bool) {
 	return p.Sprinting, p.Sneaking, p.InWater
 }
 
+// IsJustLanded returns true on the first tick the player transitions from
+// airborne (LastOnGround=false) to on-ground (OnGround=true). Speed/A uses
+// this to skip the landing tick, where Velocity still carries aerial momentum
+// from the previous airborne position and would otherwise exceed the ground
+// speed limit. Mirrors Oomph's landing-frame exemption in its speed checks.
+func (p *Player) IsJustLanded() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.OnGround && !p.LastOnGround
+}
+
 // IsOnGround returns whether the player is currently on the ground (thread-safe).
 func (p *Player) IsOnGround() bool {
 	p.mu.RLock()

@@ -72,6 +72,13 @@ func (c *PhaseACheck) Check(p *data.Player, teleportGrace bool) (bool, string) {
 	if p.IsCreative() {
 		return false, ""
 	}
+	// Elytra gliding can sustain very high horizontal speeds (especially with
+	// firework rockets): the 3D velocity can easily exceed 6 b/tick.  Exempt
+	// gliding players entirely to prevent false positives. Mirrors Oomph's
+	// gliding exemption in its position-delta validation.
+	if p.IsGliding() {
+		return false, ""
+	}
 	// Server-sent teleport this tick — the large delta is expected.
 	if teleportGrace {
 		return false, ""

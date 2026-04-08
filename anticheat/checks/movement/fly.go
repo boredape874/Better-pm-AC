@@ -34,7 +34,11 @@ const flyJumpBoostGracePerLevel = 5
 // falling at a clearly measurable rate; 3 ticks of hover is already anomalous.
 const flyMinHoverTicks = 3
 
-// FlyCheck detects players that hover in mid-air without falling.
+// flyUpwardThreshold is the minimum positive Y delta (blocks/tick) that is
+// considered "rising" for the purpose of upward-fly detection. This matches
+// the hoverDeltaThreshold in data/player.go: values below this are treated as
+// near-zero by both hover and upward-fly checks.
+const flyUpwardThreshold = float32(0.005)
 // It tracks two counters updated by data.Player.UpdatePosition:
 //   - AirTicks:   consecutive ticks airborne since last grounding.
 //   - HoverTicks: consecutive ticks where |dy| < hoverDeltaThreshold.
@@ -85,7 +89,21 @@ func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 	if _, hasSlowFall := p.EffectAmplifier(packet.EffectSlowFalling); hasSlowFall {
 		return false, ""
 	}
-	airborne, _, airTicks, hoverTicks := p.FlySnapshot()
+	// Server-applied knockback (SetActorMotion / MotionPredictionHints) launches
+	// the player into the air; the resulting airborne phase is legitimate.  Skip
+	// the check until the knockback grace window expires to avoid false positives
+	// on players who are knocked upward for many ticks. Mirrors Oomph's motion-
+	// update exemption for externally applied velocities.
+	if p.HasKnockbackGrace() {
+		return false, ""
+	}
+	// Players who recently exited water may briefly exhibit hover-like Y deltas
+	// while transitioning from the water surface to the ground.  Exempt during
+	// the same grace window used by NoFall/A (mirrors Oomph's water-exit grace).
+	if p.HasRecentWaterExit() {
+		return false, ""
+	}
+	airborne, yDelta, airTicks, hoverTicks := p.FlySnapshot()
 	if !airborne {
 		return false, ""
 	}
@@ -106,10 +124,19 @@ func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 	if airTicks <= graceTicks {
 		return false, ""
 	}
-	// Flag when the Y displacement has been near zero for enough ticks to rule
-	// out a jump apex or other transient near-zero Y-velocity scenario.
+	// Upward-fly detection (GrimAC "Fly type 2"):
+	// After the grace period, a legitimate player must be falling (yDelta < 0).
+	// If Y delta is still above the hover threshold, the player is continuing to
+	// rise, which is only possible with a fly cheat — vanilla jump velocity has
+	// already decayed to negative by this point.
+	if yDelta > flyUpwardThreshold {
+		return true, fmt.Sprintf("upward_fly air_ticks=%d y_delta=%.4f grace=%d", airTicks, yDelta, graceTicks)
+	}
+	// Hover-fly detection: flag when the Y displacement has been near zero for
+	// enough ticks to rule out a jump apex or other transient near-zero Y-velocity
+	// scenario.
 	if hoverTicks >= flyMinHoverTicks {
-		return true, fmt.Sprintf("air_ticks=%d hover_ticks=%d grace=%d", airTicks, hoverTicks, graceTicks)
+		return true, fmt.Sprintf("hover air_ticks=%d hover_ticks=%d grace=%d", airTicks, hoverTicks, graceTicks)
 	}
 	return false, ""
 }

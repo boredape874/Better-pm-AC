@@ -84,6 +84,14 @@ func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
 	if !p.IsOnGround() {
 		return false, ""
 	}
+	// Skip the landing tick (the first tick the player transitions from
+	// airborne to on-ground). At that moment, Velocity still carries the
+	// momentum from the last airborne position, which can exceed the ground
+	// speed limit even for a legitimate sprint-jump. Mirrors Oomph's
+	// landing-frame grace in its ground-speed validation.
+	if p.IsJustLanded() {
+		return false, ""
+	}
 
 	speed := p.HorizontalSpeed() // blocks/tick
 	maxSpeed := float32(c.cfg.MaxSpeed)

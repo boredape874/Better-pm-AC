@@ -70,6 +70,14 @@ func (c *NoFallBCheck) Check(p *data.Player) (bool, string) {
 	if p.HasRecentWaterExit() {
 		return false, ""
 	}
+	// Server-applied knockback can push the player downward while they are
+	// genuinely on (or very near) the ground, causing GroundFallTicks to
+	// accumulate. Exempt during the knockback grace window to avoid falsely
+	// flagging players who were hit near the ground. Mirrors Oomph's motion-
+	// update exemption for externally applied velocities.
+	if p.HasKnockbackGrace() {
+		return false, ""
+	}
 
 	groundFallTicks, yDelta, onGround := p.GroundFallSnapshot()
 
