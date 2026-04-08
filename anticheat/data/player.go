@@ -126,6 +126,11 @@ type Player struct {
 	// KillAura/C uses these to detect bots that hit multiple targets in one tick.
 	LastAttackTick  uint64
 	LastAttackCount int
+	// ConstPitchTicks counts consecutive ticks where the pitch delta is exactly
+	// zero while the yaw delta is non-trivial (the player is turning but not
+	// adjusting pitch). Aim/B uses this to flag aimbot software that rotates
+	// the yaw to track targets but keeps the pitch perfectly locked.
+	ConstPitchTicks int
 
 	// inputTimestamps records the wall-clock arrival time of each
 	// PlayerAuthInput packet within a rolling one-second window.
@@ -205,6 +210,25 @@ func (p *Player) UpdateRotation(yaw, pitch float32) {
 		float32(math.Abs(float64(yawDelta))),
 		float32(math.Abs(float64(pitchDelta))),
 	}
+
+	// Track ConstPitchTicks for Aim/B: count how many consecutive ticks the
+	// player turns their yaw by more than 0.5° without adjusting pitch at all.
+	// A perfectly locked pitch combined with active yaw rotation is a signature
+	// of aimbot software that tracks targets horizontally.
+	const minYawForConstPitchCheck = float32(0.5) // degrees
+	if float32(math.Abs(float64(yawDelta))) > minYawForConstPitchCheck && pitchDelta == 0 {
+		p.ConstPitchTicks++
+	} else {
+		p.ConstPitchTicks = 0
+	}
+}
+
+// ConstPitchSnapshot returns the number of consecutive ticks in which the
+// player moved their yaw without adjusting pitch. Used by Aim/B.
+func (p *Player) ConstPitchSnapshot() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.ConstPitchTicks
 }
 
 // RotationSnapshot returns the current rotation delta (yawDelta, pitchDelta)
@@ -298,6 +322,15 @@ func (p *Player) UpdatePosition(pos mgl32.Vec3, onGround bool) {
 			p.FallDistance = p.FallStartY - pos[1]
 		}
 	}
+}
+
+// PositionDelta returns the raw per-tick position delta (Velocity), which is
+// the displacement from the previous position to the current one in blocks/tick.
+// Used by Phase/A to detect impossible position jumps.
+func (p *Player) PositionDelta() mgl32.Vec3 {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.Velocity
 }
 
 // HorizontalSpeed returns the horizontal speed as blocks/tick (XZ plane).

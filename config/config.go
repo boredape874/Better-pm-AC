@@ -25,9 +25,11 @@ type ProxyConfig struct {
 // AnticheatConfig groups all check configurations.
 type AnticheatConfig struct {
 	Speed        SpeedConfig        `toml:"speed"`
+	SpeedB       SpeedBConfig       `toml:"speed_b"`
 	Fly          FlyConfig          `toml:"fly"`
 	NoFall       NoFallConfig       `toml:"nofall"`
 	NoFallB      NoFallBConfig      `toml:"nofall_b"`
+	Phase        PhaseAConfig       `toml:"phase"`
 	Reach        ReachConfig        `toml:"reach"`
 	KillAura     KillAuraConfig     `toml:"killaura"`
 	KillAuraB    KillAuraBConfig    `toml:"killaura_b"`
@@ -35,6 +37,7 @@ type AnticheatConfig struct {
 	AutoClicker  AutoClickerConfig  `toml:"autoclicker"`
 	AutoClickerB AutoClickerBConfig `toml:"autoclicker_b"`
 	Aim          AimConfig          `toml:"aim"`
+	AimB         AimBConfig         `toml:"aim_b"`
 	BadPacket    BadPacketConfig    `toml:"badpacket"`
 	BadPacketB   BadPacketBConfig   `toml:"badpacket_b"`
 	BadPacketC   BadPacketCConfig   `toml:"badpacket_c"`
@@ -47,6 +50,13 @@ type SpeedConfig struct {
 	Enabled    bool    `toml:"enabled"`
 	MaxSpeed   float64 `toml:"max_speed"`  // blocks/tick at 20 TPS
 	Violations int     `toml:"violations"` // kicks at this VL
+}
+
+// SpeedBConfig configures the Speed/B check (aerial horizontal speed).
+type SpeedBConfig struct {
+	Enabled    bool    `toml:"enabled"`
+	MaxSpeed   float64 `toml:"max_speed"`  // blocks/tick (same scale as Speed/A)
+	Violations int     `toml:"violations"`
 }
 
 // FlyConfig configures the Fly/A check.
@@ -63,6 +73,12 @@ type NoFallConfig struct {
 
 // NoFallBConfig configures the NoFall/B check (persistent OnGround spoof).
 type NoFallBConfig struct {
+	Enabled    bool `toml:"enabled"`
+	Violations int  `toml:"violations"`
+}
+
+// PhaseAConfig configures the Phase/A check (impossible position jump).
+type PhaseAConfig struct {
 	Enabled    bool `toml:"enabled"`
 	Violations int  `toml:"violations"`
 }
@@ -113,6 +129,12 @@ type AimConfig struct {
 	Violations int  `toml:"violations"`
 }
 
+// AimBConfig configures the Aim/B check (constant pitch during yaw rotation).
+type AimBConfig struct {
+	Enabled    bool `toml:"enabled"`
+	Violations int  `toml:"violations"`
+}
+
 // BadPacketConfig configures the BadPacket/A check.
 type BadPacketConfig struct {
 	Enabled    bool `toml:"enabled"`
@@ -156,9 +178,11 @@ func Default() Config {
 		},
 		Anticheat: AnticheatConfig{
 			Speed:        SpeedConfig{Enabled: true, MaxSpeed: 0.7, Violations: 10},
+			SpeedB:       SpeedBConfig{Enabled: true, MaxSpeed: 0.7, Violations: 10},
 			Fly:          FlyConfig{Enabled: true, Violations: 5},
 			NoFall:       NoFallConfig{Enabled: true, Violations: 5},
 			NoFallB:      NoFallBConfig{Enabled: true, Violations: 5},
+			Phase:        PhaseAConfig{Enabled: true, Violations: 3},
 			Reach:        ReachConfig{Enabled: true, MaxReach: 3.1, Violations: 7},
 			KillAura:     KillAuraConfig{Enabled: true, Violations: 1},
 			KillAuraB:    KillAuraBConfig{Enabled: true, Violations: 5},
@@ -166,6 +190,7 @@ func Default() Config {
 			AutoClicker:  AutoClickerConfig{Enabled: true, MaxCPS: 20, Violations: 20},
 			AutoClickerB: AutoClickerBConfig{Enabled: true, StdDevThreshold: 5.0, MinSamples: 8, Violations: 15},
 			Aim:          AimConfig{Enabled: true, Violations: 20},
+			AimB:         AimBConfig{Enabled: true, Violations: 10},
 			BadPacket:    BadPacketConfig{Enabled: true, Violations: 1},
 			BadPacketB:   BadPacketBConfig{Enabled: true, Violations: 1},
 			BadPacketC:   BadPacketCConfig{Enabled: true, Violations: 1},

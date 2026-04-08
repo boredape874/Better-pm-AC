@@ -25,9 +25,11 @@ type DetectionMetadata = meta.DetectionMetadata
 // playerDetections holds one *DetectionMetadata copy per check, per player.
 type playerDetections struct {
 	speed        *DetectionMetadata
+	speedB       *DetectionMetadata
 	fly          *DetectionMetadata
 	noFall       *DetectionMetadata
 	noFallB      *DetectionMetadata
+	phase        *DetectionMetadata
 	reach        *DetectionMetadata
 	killAura     *DetectionMetadata
 	killAuraB    *DetectionMetadata
@@ -35,6 +37,7 @@ type playerDetections struct {
 	autoClicker  *DetectionMetadata
 	autoClickerB *DetectionMetadata
 	aim          *DetectionMetadata
+	aimB         *DetectionMetadata
 	badPacket    *DetectionMetadata
 	badPacketB   *DetectionMetadata
 	badPacketC   *DetectionMetadata
@@ -53,9 +56,11 @@ type Manager struct {
 
 	// Stateless check instances
 	speed        *movement.SpeedCheck
+	speedB       *movement.SpeedBCheck
 	fly          *movement.FlyCheck
 	noFall       *movement.NoFallCheck
 	noFallB      *movement.NoFallBCheck
+	phase        *movement.PhaseACheck
 	reach        *combat.ReachCheck
 	killAura     *combat.KillAuraCheck
 	killAuraB    *combat.KillAuraBCheck
@@ -63,6 +68,7 @@ type Manager struct {
 	autoClicker  *combat.AutoClickerCheck
 	autoClickerB *combat.AutoClickerBCheck
 	aim          *combat.AimCheck
+	aimB         *combat.AimBCheck
 	badPacket    *pkt.BadPacketCheck
 	badPacketB   *pkt.BadPacketBCheck
 	badPacketC   *pkt.BadPacketCCheck
@@ -81,9 +87,11 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		players:      make(map[uuid.UUID]*data.Player),
 		detections:   make(map[uuid.UUID]*playerDetections),
 		speed:        movement.NewSpeedCheck(cfg.Speed),
+		speedB:       movement.NewSpeedBCheck(cfg.SpeedB),
 		fly:          movement.NewFlyCheck(cfg.Fly),
 		noFall:       movement.NewNoFallCheck(cfg.NoFall),
 		noFallB:      movement.NewNoFallBCheck(cfg.NoFallB),
+		phase:        movement.NewPhaseACheck(cfg.Phase),
 		reach:        combat.NewReachCheck(cfg.Reach),
 		killAura:     combat.NewKillAuraCheck(cfg.KillAura),
 		killAuraB:    combat.NewKillAuraBCheck(cfg.KillAuraB),
@@ -91,6 +99,7 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		autoClicker:  combat.NewAutoClickerCheck(cfg.AutoClicker),
 		autoClickerB: combat.NewAutoClickerBCheck(cfg.AutoClickerB),
 		aim:          combat.NewAimCheck(cfg.Aim),
+		aimB:         combat.NewAimBCheck(cfg.AimB),
 		badPacket:    pkt.NewBadPacketCheck(cfg.BadPacket),
 		badPacketB:   pkt.NewBadPacketBCheck(cfg.BadPacketB),
 		badPacketC:   pkt.NewBadPacketCCheck(cfg.BadPacketC),
@@ -102,9 +111,11 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 func (m *Manager) newPlayerDetections() *playerDetections {
 	return &playerDetections{
 		speed:        m.speed.DefaultMetadata(),
+		speedB:       m.speedB.DefaultMetadata(),
 		fly:          m.fly.DefaultMetadata(),
 		noFall:       m.noFall.DefaultMetadata(),
 		noFallB:      m.noFallB.DefaultMetadata(),
+		phase:        m.phase.DefaultMetadata(),
 		reach:        m.reach.DefaultMetadata(),
 		killAura:     m.killAura.DefaultMetadata(),
 		killAuraB:    m.killAuraB.DefaultMetadata(),
@@ -112,6 +123,7 @@ func (m *Manager) newPlayerDetections() *playerDetections {
 		autoClicker:  m.autoClicker.DefaultMetadata(),
 		autoClickerB: m.autoClickerB.DefaultMetadata(),
 		aim:          m.aim.DefaultMetadata(),
+		aimB:         m.aimB.DefaultMetadata(),
 		badPacket:    m.badPacket.DefaultMetadata(),
 		badPacketB:   m.badPacketB.DefaultMetadata(),
 		badPacketC:   m.badPacketC.DefaultMetadata(),
@@ -254,6 +266,22 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 		} else {
 			det.speed.Pass(0.05)
 		}
+
+		// Speed/B — aerial horizontal speed.
+		if flagged, info := m.speedB.Check(p); flagged {
+			if det.speedB.Fail(int64(tick)) {
+				m.handleViolation(p, m.speedB, det.speedB, info)
+			}
+		} else {
+			det.speedB.Pass(0.05)
+		}
+
+		// Phase/A — impossible position delta without teleport.
+		if flagged, info := m.phase.Check(p, false); flagged {
+			if det.phase.Fail(int64(tick)) {
+				m.handleViolation(p, m.phase, det.phase, info)
+			}
+		}
 	}
 
 	// Fly/A — creative and water exemptions are handled inside Check.
@@ -293,6 +321,15 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 	} else if passAmount > 0 {
 		det.aim.Pass(passAmount)
 	}
+
+	// Aim/B — constant pitch during yaw rotation (mouse clients only).
+	if flagged, info := m.aimB.Check(p); flagged {
+		if det.aimB.Fail(int64(tick)) {
+			m.handleViolation(p, m.aimB, det.aimB, info)
+		}
+	} else {
+		det.aimB.Pass(0.2)
+	}
 }
 
 // OnMove is called for legacy MovePlayer packets (non-authoritative clients).
@@ -314,6 +351,20 @@ func (m *Manager) OnMove(id uuid.UUID, pos mgl32.Vec3, onGround bool) {
 			}
 		} else {
 			det.speed.Pass(0.05)
+		}
+
+		if flagged, info := m.speedB.Check(p); flagged {
+			if det.speedB.Fail(tick) {
+				m.handleViolation(p, m.speedB, det.speedB, info)
+			}
+		} else {
+			det.speedB.Pass(0.05)
+		}
+
+		if flagged, info := m.phase.Check(p, false); flagged {
+			if det.phase.Fail(tick) {
+				m.handleViolation(p, m.phase, det.phase, info)
+			}
 		}
 	}
 
