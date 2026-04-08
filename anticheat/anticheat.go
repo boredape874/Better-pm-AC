@@ -4,18 +4,18 @@
 package anticheat
 
 import (
-"fmt"
-"log/slog"
-"sync"
+	"fmt"
+	"log/slog"
+	"sync"
 
-"github.com/boredape874/Better-pm-AC/anticheat/checks/combat"
-"github.com/boredape874/Better-pm-AC/anticheat/checks/movement"
-pkt "github.com/boredape874/Better-pm-AC/anticheat/checks/packet"
-"github.com/boredape874/Better-pm-AC/anticheat/data"
-"github.com/boredape874/Better-pm-AC/anticheat/meta"
-"github.com/boredape874/Better-pm-AC/config"
-"github.com/go-gl/mathgl/mgl32"
-"github.com/google/uuid"
+	"github.com/boredape874/Better-pm-AC/anticheat/checks/combat"
+	"github.com/boredape874/Better-pm-AC/anticheat/checks/movement"
+	pkt "github.com/boredape874/Better-pm-AC/anticheat/checks/packet"
+	"github.com/boredape874/Better-pm-AC/anticheat/data"
+	"github.com/boredape874/Better-pm-AC/anticheat/meta"
+	"github.com/boredape874/Better-pm-AC/config"
+	"github.com/go-gl/mathgl/mgl32"
+	"github.com/google/uuid"
 )
 
 // Re-export so callers only need to import anticheat, not anticheat/meta.
@@ -24,208 +24,208 @@ type DetectionMetadata = meta.DetectionMetadata
 
 // playerDetections holds one *DetectionMetadata copy per check, per player.
 type playerDetections struct {
-speed       *DetectionMetadata
-fly         *DetectionMetadata
-noFall      *DetectionMetadata
-reach       *DetectionMetadata
-killAura    *DetectionMetadata
-autoClicker *DetectionMetadata
-aim         *DetectionMetadata
-badPacket   *DetectionMetadata
+	speed       *DetectionMetadata
+	fly         *DetectionMetadata
+	noFall      *DetectionMetadata
+	reach       *DetectionMetadata
+	killAura    *DetectionMetadata
+	autoClicker *DetectionMetadata
+	aim         *DetectionMetadata
+	badPacket   *DetectionMetadata
 }
 
 // Manager coordinates all anti-cheat checks and the player registry.
 type Manager struct {
-cfg config.AnticheatConfig
-log *slog.Logger
+	cfg config.AnticheatConfig
+	log *slog.Logger
 
-mu         sync.RWMutex
-players    map[uuid.UUID]*data.Player
-detections map[uuid.UUID]*playerDetections
+	mu         sync.RWMutex
+	players    map[uuid.UUID]*data.Player
+	detections map[uuid.UUID]*playerDetections
 
-// Stateless check instances
-speed       *movement.SpeedCheck
-fly         *movement.FlyCheck
-noFall      *movement.NoFallCheck
-reach       *combat.ReachCheck
-killAura    *combat.KillAuraCheck
-autoClicker *combat.AutoClickerCheck
-aim         *combat.AimCheck
-badPacket   *pkt.BadPacketCheck
+	// Stateless check instances
+	speed       *movement.SpeedCheck
+	fly         *movement.FlyCheck
+	noFall      *movement.NoFallCheck
+	reach       *combat.ReachCheck
+	killAura    *combat.KillAuraCheck
+	autoClicker *combat.AutoClickerCheck
+	aim         *combat.AimCheck
+	badPacket   *pkt.BadPacketCheck
 
-// KickFunc is called when a player should be disconnected.
-KickFunc func(id uuid.UUID, reason string)
+	// KickFunc is called when a player should be disconnected.
+	KickFunc func(id uuid.UUID, reason string)
 }
 
 // NewManager creates a Manager ready to process packets.
 func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
-return &Manager{
-cfg:         cfg,
-log:         log,
-players:     make(map[uuid.UUID]*data.Player),
-detections:  make(map[uuid.UUID]*playerDetections),
-speed:       movement.NewSpeedCheck(cfg.Speed),
-fly:         movement.NewFlyCheck(cfg.Fly),
-noFall:      movement.NewNoFallCheck(cfg.NoFall),
-reach:       combat.NewReachCheck(cfg.Reach),
-killAura:    combat.NewKillAuraCheck(cfg.KillAura),
-autoClicker: combat.NewAutoClickerCheck(cfg.AutoClicker),
-aim:         combat.NewAimCheck(cfg.Aim),
-badPacket:   pkt.NewBadPacketCheck(cfg.BadPacket),
-}
+	return &Manager{
+		cfg:         cfg,
+		log:         log,
+		players:     make(map[uuid.UUID]*data.Player),
+		detections:  make(map[uuid.UUID]*playerDetections),
+		speed:       movement.NewSpeedCheck(cfg.Speed),
+		fly:         movement.NewFlyCheck(cfg.Fly),
+		noFall:      movement.NewNoFallCheck(cfg.NoFall),
+		reach:       combat.NewReachCheck(cfg.Reach),
+		killAura:    combat.NewKillAuraCheck(cfg.KillAura),
+		autoClicker: combat.NewAutoClickerCheck(cfg.AutoClicker),
+		aim:         combat.NewAimCheck(cfg.Aim),
+		badPacket:   pkt.NewBadPacketCheck(cfg.BadPacket),
+	}
 }
 
 func (m *Manager) newPlayerDetections() *playerDetections {
-return &playerDetections{
-speed:       m.speed.DefaultMetadata(),
-fly:         m.fly.DefaultMetadata(),
-noFall:      m.noFall.DefaultMetadata(),
-reach:       m.reach.DefaultMetadata(),
-killAura:    m.killAura.DefaultMetadata(),
-autoClicker: m.autoClicker.DefaultMetadata(),
-aim:         m.aim.DefaultMetadata(),
-badPacket:   m.badPacket.DefaultMetadata(),
-}
+	return &playerDetections{
+		speed:       m.speed.DefaultMetadata(),
+		fly:         m.fly.DefaultMetadata(),
+		noFall:      m.noFall.DefaultMetadata(),
+		reach:       m.reach.DefaultMetadata(),
+		killAura:    m.killAura.DefaultMetadata(),
+		autoClicker: m.autoClicker.DefaultMetadata(),
+		aim:         m.aim.DefaultMetadata(),
+		badPacket:   m.badPacket.DefaultMetadata(),
+	}
 }
 
 // AddPlayer registers a new player session.
 func (m *Manager) AddPlayer(id uuid.UUID, username string) {
-m.mu.Lock()
-defer m.mu.Unlock()
-m.players[id] = data.NewPlayer(id, username)
-m.detections[id] = m.newPlayerDetections()
-m.log.Info("player joined", "uuid", id, "username", username)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.players[id] = data.NewPlayer(id, username)
+	m.detections[id] = m.newPlayerDetections()
+	m.log.Info("player joined", "uuid", id, "username", username)
 }
 
 // RemovePlayer removes a player session and frees its detection state.
 func (m *Manager) RemovePlayer(id uuid.UUID) {
-m.mu.Lock()
-defer m.mu.Unlock()
-delete(m.players, id)
-delete(m.detections, id)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.players, id)
+	delete(m.detections, id)
 }
 
 func (m *Manager) getPlayer(id uuid.UUID) *data.Player {
-m.mu.RLock()
-defer m.mu.RUnlock()
-return m.players[id]
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.players[id]
 }
 
 func (m *Manager) getDet(id uuid.UUID) *playerDetections {
-m.mu.RLock()
-defer m.mu.RUnlock()
-return m.detections[id]
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.detections[id]
 }
 
 // UpdateEntityPos records the server-authoritative position of an entity.
 // Called from the serverToClient goroutine for AddPlayer, AddActor,
 // MovePlayer, and MoveActorAbsolute packets.
 func (m *Manager) UpdateEntityPos(playerID uuid.UUID, entityRID uint64, pos mgl32.Vec3) {
-if p := m.getPlayer(playerID); p != nil {
-p.UpdateEntityPos(entityRID, pos)
-}
+	if p := m.getPlayer(playerID); p != nil {
+		p.UpdateEntityPos(entityRID, pos)
+	}
 }
 
 // MapEntityUID stores a uniqueID→runtimeID mapping for a non-player actor
 // so it can be cleaned up when RemoveActor is received.
 func (m *Manager) MapEntityUID(playerID uuid.UUID, uid int64, rid uint64) {
-if p := m.getPlayer(playerID); p != nil {
-p.MapEntityUID(uid, rid)
-}
+	if p := m.getPlayer(playerID); p != nil {
+		p.MapEntityUID(uid, rid)
+	}
 }
 
 // RemoveEntity removes an entity from a player's position table.
 // Called when the server sends a RemoveActor packet.
 func (m *Manager) RemoveEntity(playerID uuid.UUID, uid int64) {
-if p := m.getPlayer(playerID); p != nil {
-p.RemoveEntity(uid)
-}
+	if p := m.getPlayer(playerID); p != nil {
+		p.RemoveEntity(uid)
+	}
 }
 
 // OnInput is called for every PlayerAuthInput packet.
 // inputMode is PlayerAuthInput.InputMode (1=Mouse, 2=Touch, 3=GamePad).
 func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bool, yaw, pitch float32, inputMode uint32) {
-p := m.getPlayer(id)
-det := m.getDet(id)
-if p == nil || det == nil {
-return
-}
+	p := m.getPlayer(id)
+	det := m.getDet(id)
+	if p == nil || det == nil {
+		return
+	}
 
-// BadPacket check runs before UpdateTick so it can compare old vs new tick.
-if flagged, info := m.badPacket.Check(p, tick); flagged {
-if det.badPacket.Fail(int64(tick)) {
-m.handleViolation(p, m.badPacket, det.badPacket, info)
-}
-}
+	// BadPacket check runs before UpdateTick so it can compare old vs new tick.
+	if flagged, info := m.badPacket.Check(p, tick); flagged {
+		if det.badPacket.Fail(int64(tick)) {
+			m.handleViolation(p, m.badPacket, det.badPacket, info)
+		}
+	}
 
-p.UpdateTick(tick)
-p.UpdateRotation(yaw, pitch)
-p.UpdatePosition(pos, onGround)
-p.SetInputMode(inputMode)
+	p.UpdateTick(tick)
+	p.UpdateRotation(yaw, pitch)
+	p.UpdatePosition(pos, onGround)
+	p.SetInputMode(inputMode)
 
-// Speed/A
-if flagged, info := m.speed.Check(p); flagged {
-if det.speed.Fail(int64(tick)) {
-m.handleViolation(p, m.speed, det.speed, info)
-}
-} else {
-det.speed.Pass(0.05)
-}
+	// Speed/A
+	if flagged, info := m.speed.Check(p); flagged {
+		if det.speed.Fail(int64(tick)) {
+			m.handleViolation(p, m.speed, det.speed, info)
+		}
+	} else {
+		det.speed.Pass(0.05)
+	}
 
-// Fly/A
-if flagged, info := m.fly.Check(p); flagged {
-if det.fly.Fail(int64(tick)) {
-m.handleViolation(p, m.fly, det.fly, info)
-}
-}
+	// Fly/A
+	if flagged, info := m.fly.Check(p); flagged {
+		if det.fly.Fail(int64(tick)) {
+			m.handleViolation(p, m.fly, det.fly, info)
+		}
+	}
 
-// NoFall/A
-if flagged, info := m.noFall.Check(p); flagged {
-if det.noFall.Fail(int64(tick)) {
-m.handleViolation(p, m.noFall, det.noFall, info)
-}
-}
+	// NoFall/A
+	if flagged, info := m.noFall.Check(p); flagged {
+		if det.noFall.Fail(int64(tick)) {
+			m.handleViolation(p, m.noFall, det.noFall, info)
+		}
+	}
 
-// Aim/A
-if flagged, info, passAmount := m.aim.Check(p); flagged {
-if det.aim.Fail(int64(tick)) {
-m.handleViolation(p, m.aim, det.aim, info)
-}
-} else if passAmount > 0 {
-det.aim.Pass(passAmount)
-}
+	// Aim/A
+	if flagged, info, passAmount := m.aim.Check(p); flagged {
+		if det.aim.Fail(int64(tick)) {
+			m.handleViolation(p, m.aim, det.aim, info)
+		}
+	} else if passAmount > 0 {
+		det.aim.Pass(passAmount)
+	}
 }
 
 // OnMove is called for legacy MovePlayer packets (non-authoritative clients).
 func (m *Manager) OnMove(id uuid.UUID, pos mgl32.Vec3, onGround bool) {
-p := m.getPlayer(id)
-det := m.getDet(id)
-if p == nil || det == nil {
-return
-}
+	p := m.getPlayer(id)
+	det := m.getDet(id)
+	if p == nil || det == nil {
+		return
+	}
 
-p.UpdatePosition(pos, onGround)
-tick := int64(p.SimFrame())
+	p.UpdatePosition(pos, onGround)
+	tick := int64(p.SimFrame())
 
-if flagged, info := m.speed.Check(p); flagged {
-if det.speed.Fail(tick) {
-m.handleViolation(p, m.speed, det.speed, info)
-}
-} else {
-det.speed.Pass(0.05)
-}
+	if flagged, info := m.speed.Check(p); flagged {
+		if det.speed.Fail(tick) {
+			m.handleViolation(p, m.speed, det.speed, info)
+		}
+	} else {
+		det.speed.Pass(0.05)
+	}
 
-if flagged, info := m.fly.Check(p); flagged {
-if det.fly.Fail(tick) {
-m.handleViolation(p, m.fly, det.fly, info)
-}
-}
+	if flagged, info := m.fly.Check(p); flagged {
+		if det.fly.Fail(tick) {
+			m.handleViolation(p, m.fly, det.fly, info)
+		}
+	}
 
-if flagged, info := m.noFall.Check(p); flagged {
-if det.noFall.Fail(tick) {
-m.handleViolation(p, m.noFall, det.noFall, info)
-}
-}
+	if flagged, info := m.noFall.Check(p); flagged {
+		if det.noFall.Fail(tick) {
+			m.handleViolation(p, m.noFall, det.noFall, info)
+		}
+	}
 }
 
 // OnAttack is called when a player sends a UseItemOnEntity attack transaction.
@@ -233,68 +233,68 @@ m.handleViolation(p, m.noFall, det.noFall, info)
 // the server-authoritative position from the entity position table.
 // This replaces the broken ClickedPosition-based approach.
 func (m *Manager) OnAttack(attackerID, targetID uuid.UUID, targetRID uint64) {
-p := m.getPlayer(attackerID)
-det := m.getDet(attackerID)
-if p == nil || det == nil {
-return
-}
+	p := m.getPlayer(attackerID)
+	det := m.getDet(attackerID)
+	if p == nil || det == nil {
+		return
+	}
 
-tick := int64(p.SimFrame())
+	tick := int64(p.SimFrame())
 
-p.RecordClick()
-p.RecordAttack(targetID)
+	p.RecordClick()
+	p.RecordAttack(targetID)
 
-// Reach/A: only run when we have a server-authoritative entity position.
-// If the entity is not in the table (e.g. the first attack before any
-// server position has been received), skip to avoid false positives.
-if targetPos, ok := p.EntityPos(targetRID); ok {
-if flagged, info := m.reach.Check(p, targetPos); flagged {
-if det.reach.Fail(tick) {
-m.handleViolation(p, m.reach, det.reach, info)
-}
-} else {
-det.reach.Pass(0.0015)
-}
-}
+	// Reach/A: only run when we have a server-authoritative entity position.
+	// If the entity is not in the table (e.g. the first attack before any
+	// server position has been received), skip to avoid false positives.
+	if targetPos, ok := p.EntityPos(targetRID); ok {
+		if flagged, info := m.reach.Check(p, targetPos); flagged {
+			if det.reach.Fail(tick) {
+				m.handleViolation(p, m.reach, det.reach, info)
+			}
+		} else {
+			det.reach.Pass(0.0015)
+		}
+	}
 
-// KillAura/A
-if flagged, info := m.killAura.Check(p); flagged {
-if det.killAura.Fail(tick) {
-m.handleViolation(p, m.killAura, det.killAura, info)
-}
-}
+	// KillAura/A
+	if flagged, info := m.killAura.Check(p); flagged {
+		if det.killAura.Fail(tick) {
+			m.handleViolation(p, m.killAura, det.killAura, info)
+		}
+	}
 
-// AutoClicker/A
-if flagged, info := m.autoClicker.Check(p); flagged {
-if det.autoClicker.Fail(tick) {
-m.handleViolation(p, m.autoClicker, det.autoClicker, info)
-}
-}
+	// AutoClicker/A
+	if flagged, info := m.autoClicker.Check(p); flagged {
+		if det.autoClicker.Fail(tick) {
+			m.handleViolation(p, m.autoClicker, det.autoClicker, info)
+		}
+	}
 }
 
 // OnSwing records an arm-swing event.
 func (m *Manager) OnSwing(id uuid.UUID) {
-if p := m.getPlayer(id); p != nil {
-p.RecordSwing()
-}
+	if p := m.getPlayer(id); p != nil {
+		p.RecordSwing()
+	}
 }
 
 // handleViolation logs the violation and kicks when the threshold is reached.
 func (m *Manager) handleViolation(p *data.Player, d Detection, meta *DetectionMetadata, extraInfo string) {
-m.log.Warn("violation detected",
-"player", p.Username,
-"uuid", p.UUID,
-"check", d.Type()+"/"+d.SubType(),
-"violations", fmt.Sprintf("%.2f", meta.Violations),
-"max", meta.MaxViolations,
-"info", extraInfo,
-)
+	m.log.Warn("violation detected",
+		"player", p.Username,
+		"uuid", p.UUID,
+		"check", d.Type()+"/"+d.SubType(),
+		"violations", fmt.Sprintf("%.2f", meta.Violations),
+		"max", meta.MaxViolations,
+		"info", extraInfo,
+	)
 
-if d.Punishable() && meta.Exceeded() && m.KickFunc != nil {
-reason := fmt.Sprintf(
-"Kicked by Better-pm-AC: %s/%s (VL %.2f)",
-d.Type(), d.SubType(), meta.Violations,
-)
-m.KickFunc(p.UUID, reason)
-}
+	if d.Punishable() && meta.Exceeded() && m.KickFunc != nil {
+		reason := fmt.Sprintf(
+			"Kicked by Better-pm-AC: %s/%s (VL %.2f)",
+			d.Type(), d.SubType(), meta.Violations,
+		)
+		m.KickFunc(p.UUID, reason)
+	}
 }

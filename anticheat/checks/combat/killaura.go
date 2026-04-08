@@ -1,11 +1,11 @@
 package combat
 
 import (
-"fmt"
+	"fmt"
 
-"github.com/boredape874/Better-pm-AC/anticheat/meta"
-"github.com/boredape874/Better-pm-AC/anticheat/data"
-"github.com/boredape874/Better-pm-AC/config"
+	"github.com/boredape874/Better-pm-AC/anticheat/data"
+	"github.com/boredape874/Better-pm-AC/anticheat/meta"
+	"github.com/boredape874/Better-pm-AC/config"
 )
 
 // maxSwingTickDiff is the maximum number of simulation ticks that may elapse
@@ -18,26 +18,26 @@ const maxSwingTickDiff = uint64(10)
 // separately from swing animations (packet.Animate / InputFlagMissedSwing).
 // Implements anticheat.Detection.
 type KillAuraCheck struct {
-cfg config.KillAuraConfig
+	cfg config.KillAuraConfig
 }
 
 func NewKillAuraCheck(cfg config.KillAuraConfig) *KillAuraCheck {
-return &KillAuraCheck{cfg: cfg}
+	return &KillAuraCheck{cfg: cfg}
 }
 
-func (*KillAuraCheck) Type() string        { return "KillAura" }
-func (*KillAuraCheck) SubType() string     { return "A" }
+func (*KillAuraCheck) Type() string    { return "KillAura" }
+func (*KillAuraCheck) SubType() string { return "A" }
 func (*KillAuraCheck) Description() string {
-return "Detects attacking without swinging arm within the expected tick window."
+	return "Detects attacking without swinging arm within the expected tick window."
 }
 func (*KillAuraCheck) Punishable() bool { return true }
 
 func (c *KillAuraCheck) DefaultMetadata() *meta.DetectionMetadata {
-return &meta.DetectionMetadata{
-FailBuffer:    1,
-MaxBuffer:     1,
-MaxViolations: float64(c.cfg.Violations),
-}
+	return &meta.DetectionMetadata{
+		FailBuffer:    1,
+		MaxBuffer:     1,
+		MaxViolations: float64(c.cfg.Violations),
+	}
 }
 
 func (*KillAuraCheck) Name() string { return "KillAura/A" }
@@ -50,29 +50,29 @@ func (*KillAuraCheck) Name() string { return "KillAura/A" }
 //   - tickDiff    = currentTick - lastSwing
 //   - Flag if tickDiff > maxSwingTickDiff (i.e., no swing in the last 10 ticks)
 func (c *KillAuraCheck) Check(p *data.Player) (bool, string) {
-if !c.cfg.Enabled {
-return false, ""
-}
+	if !c.cfg.Enabled {
+		return false, ""
+	}
 
-currentTick := p.SimFrame()
-lastSwing := p.SwingTick()
+	currentTick := p.SimFrame()
+	lastSwing := p.SwingTick()
 
-// On first attack before any swing has been recorded (lastSwing == 0),
-// give the player a grace pass to avoid false positives on join.
-if lastSwing == 0 {
-return false, ""
-}
+	// On first attack before any swing has been recorded (lastSwing == 0),
+	// give the player a grace pass to avoid false positives on join.
+	if lastSwing == 0 {
+		return false, ""
+	}
 
-var tickDiff uint64
-if currentTick >= lastSwing {
-tickDiff = currentTick - lastSwing
-} else {
-// Tick wrapped or teleport/reconnect — reset gracefully.
-return false, ""
-}
+	var tickDiff uint64
+	if currentTick >= lastSwing {
+		tickDiff = currentTick - lastSwing
+	} else {
+		// Tick wrapped or teleport/reconnect — reset gracefully.
+		return false, ""
+	}
 
-if tickDiff > maxSwingTickDiff {
-return true, fmt.Sprintf("tick_diff=%d last_swing=%d current=%d", tickDiff, lastSwing, currentTick)
-}
-return false, ""
+	if tickDiff > maxSwingTickDiff {
+		return true, fmt.Sprintf("tick_diff=%d last_swing=%d current=%d", tickDiff, lastSwing, currentTick)
+	}
+	return false, ""
 }

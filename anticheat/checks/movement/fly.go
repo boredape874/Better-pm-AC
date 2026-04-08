@@ -1,11 +1,11 @@
 package movement
 
 import (
-"fmt"
+	"fmt"
 
-"github.com/boredape874/Better-pm-AC/anticheat/data"
-"github.com/boredape874/Better-pm-AC/anticheat/meta"
-"github.com/boredape874/Better-pm-AC/config"
+	"github.com/boredape874/Better-pm-AC/anticheat/data"
+	"github.com/boredape874/Better-pm-AC/anticheat/meta"
+	"github.com/boredape874/Better-pm-AC/config"
 )
 
 // flyGraceTicks is the number of consecutive airborne ticks that are always
@@ -32,41 +32,43 @@ const flyMinHoverTicks = 5
 // false-positive-free signal even at the jump apex where Y velocity briefly
 // approaches zero naturally.
 type FlyCheck struct {
-cfg config.FlyConfig
+	cfg config.FlyConfig
 }
 
 func NewFlyCheck(cfg config.FlyConfig) *FlyCheck { return &FlyCheck{cfg: cfg} }
 
-func (*FlyCheck) Type() string        { return "Fly" }
-func (*FlyCheck) SubType() string     { return "A" }
-func (*FlyCheck) Description() string { return "Detects hovering via sustained near-zero Y delta while airborne." }
-func (*FlyCheck) Punishable() bool    { return true }
+func (*FlyCheck) Type() string    { return "Fly" }
+func (*FlyCheck) SubType() string { return "A" }
+func (*FlyCheck) Description() string {
+	return "Detects hovering via sustained near-zero Y delta while airborne."
+}
+func (*FlyCheck) Punishable() bool { return true }
 
 func (c *FlyCheck) DefaultMetadata() *meta.DetectionMetadata {
-return &meta.DetectionMetadata{
-FailBuffer:    3,
-MaxBuffer:     5,
-MaxViolations: float64(c.cfg.Violations),
-}
+	return &meta.DetectionMetadata{
+		FailBuffer:    3,
+		MaxBuffer:     5,
+		MaxViolations: float64(c.cfg.Violations),
+	}
 }
 
 // Check evaluates the airborne state using tick-based counters.
 func (c *FlyCheck) Check(p *data.Player) (bool, string) {
-if !c.cfg.Enabled {
-return false, ""
-}
-airborne, _, airTicks, hoverTicks := p.FlySnapshot()
-if !airborne {
-return false, ""
-}
-// Grace period: skip the entire jump arc before starting to inspect.
-if airTicks <= flyGraceTicks {
-return false, ""
-}
-// Flag when the Y displacement has been near zero for enough ticks to rule
-// out a jump apex or other transient near-zero Y-velocity scenario.
-if hoverTicks >= flyMinHoverTicks {
-return true, fmt.Sprintf("air_ticks=%d hover_ticks=%d", airTicks, hoverTicks)
-}
-return false, ""
+	if !c.cfg.Enabled {
+		return false, ""
+	}
+	airborne, _, airTicks, hoverTicks := p.FlySnapshot()
+	if !airborne {
+		return false, ""
+	}
+	// Grace period: skip the entire jump arc before starting to inspect.
+	if airTicks <= flyGraceTicks {
+		return false, ""
+	}
+	// Flag when the Y displacement has been near zero for enough ticks to rule
+	// out a jump apex or other transient near-zero Y-velocity scenario.
+	if hoverTicks >= flyMinHoverTicks {
+		return true, fmt.Sprintf("air_ticks=%d hover_ticks=%d", airTicks, hoverTicks)
+	}
+	return false, ""
 }

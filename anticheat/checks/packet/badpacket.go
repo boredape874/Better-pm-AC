@@ -1,9 +1,9 @@
 package packet
 
 import (
-"github.com/boredape874/Better-pm-AC/anticheat/meta"
-"github.com/boredape874/Better-pm-AC/anticheat/data"
-"github.com/boredape874/Better-pm-AC/config"
+	"github.com/boredape874/Better-pm-AC/anticheat/data"
+	"github.com/boredape874/Better-pm-AC/anticheat/meta"
+	"github.com/boredape874/Better-pm-AC/config"
 )
 
 // BadPacketCheck (BadPacketA) detects a PlayerAuthInput packet whose Tick
@@ -12,11 +12,11 @@ import (
 // simulation frame counter.
 // Implements anticheat.Detection.
 type BadPacketCheck struct {
-cfg config.BadPacketConfig
+	cfg config.BadPacketConfig
 }
 
 func NewBadPacketCheck(cfg config.BadPacketConfig) *BadPacketCheck {
-return &BadPacketCheck{cfg: cfg}
+	return &BadPacketCheck{cfg: cfg}
 }
 
 func (*BadPacketCheck) Type() string        { return "BadPacket" }
@@ -25,11 +25,11 @@ func (*BadPacketCheck) Description() string { return "Checks if a player's simul
 func (*BadPacketCheck) Punishable() bool    { return true }
 
 func (c *BadPacketCheck) DefaultMetadata() *meta.DetectionMetadata {
-return &meta.DetectionMetadata{
-FailBuffer:    1,
-MaxBuffer:     1,
-MaxViolations: float64(c.cfg.Violations),
-}
+	return &meta.DetectionMetadata{
+		FailBuffer:    1,
+		MaxBuffer:     1,
+		MaxViolations: float64(c.cfg.Violations),
+	}
 }
 
 func (*BadPacketCheck) Name() string { return "BadPacket/A" }
@@ -37,12 +37,12 @@ func (*BadPacketCheck) Name() string { return "BadPacket/A" }
 // Check evaluates the simulation frame transition.
 // tick is the Tick field from the latest PlayerAuthInput.
 func (c *BadPacketCheck) Check(p *data.Player, tick uint64) (bool, string) {
-if !c.cfg.Enabled {
-return false, ""
-}
-prev := p.SimulationFrame // read before UpdateTick was called — the old value
-if prev != 0 && tick == 0 {
-return true, "tick_reset"
-}
-return false, ""
+	if !c.cfg.Enabled {
+		return false, ""
+	}
+	prev := p.SimulationFrame // read before UpdateTick was called — the old value
+	if prev != 0 && tick == 0 {
+		return true, "tick_reset"
+	}
+	return false, ""
 }
