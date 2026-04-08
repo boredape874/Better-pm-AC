@@ -207,15 +207,11 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 
 		case *packet.AddPlayer:
 			// A new player entity has spawned. Store its initial position.
-			// AddPlayer uses feet-level position; subtract eye height offset
-			// to store at the feet origin (consistent with how we track the
-			// local player's position in clientToServer).
-			pos := mgl32.Vec3{
-				typed.Position[0],
-				typed.Position[1] - playerEyeHeight,
-				typed.Position[2],
-			}
-			p.ac.UpdateEntityPos(sess.ID, typed.EntityRuntimeID, pos)
+			// AddPlayer carries feet-level coordinates — no eye-height
+			// adjustment is needed (the local player's position from
+			// PlayerAuthInput IS eye-level, hence the subtraction there, but
+			// server-sent entity positions are already feet-level).
+			p.ac.UpdateEntityPos(sess.ID, typed.EntityRuntimeID, typed.Position)
 
 		case *packet.AddActor:
 			// A new non-player actor has spawned.
@@ -225,13 +221,9 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 			p.ac.MapEntityUID(sess.ID, typed.EntityUniqueID, typed.EntityRuntimeID)
 
 		case *packet.MovePlayer:
-			// An existing player entity has moved.
-			pos := mgl32.Vec3{
-				typed.Position[0],
-				typed.Position[1] - playerEyeHeight,
-				typed.Position[2],
-			}
-			p.ac.UpdateEntityPos(sess.ID, typed.EntityRuntimeID, pos)
+			// An existing player entity has moved. MovePlayer (server→client)
+			// carries feet-level coordinates — no eye-height adjustment needed.
+			p.ac.UpdateEntityPos(sess.ID, typed.EntityRuntimeID, typed.Position)
 
 		case *packet.MoveActorAbsolute:
 			// An existing non-player entity has moved.

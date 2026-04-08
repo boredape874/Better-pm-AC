@@ -40,7 +40,10 @@ func (c *BadPacketCheck) Check(p *data.Player, tick uint64) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
-	prev := p.SimulationFrame // read before UpdateTick was called — the old value
+	// Use the thread-safe getter. UpdateTick has not been called yet at this
+	// point, so SimFrame() returns the previous tick value — exactly what we
+	// need to compare against the incoming tick.
+	prev := p.SimFrame()
 	if prev != 0 && tick == 0 {
 		return true, "tick_reset"
 	}

@@ -50,8 +50,10 @@ type Player struct {
 	HoverTicks int
 
 	// Fall tracking
-	FallDistance float32
-	FallStartY   float32
+	FallDistance     float32
+	LastFallDistance float32 // captured before landing reset so NoFall/A can read it
+	FallStartY       float32
+	fallTracking     bool // true once the fall start Y has been established
 
 	// Rotation
 	Rotation      mgl32.Vec2
@@ -81,7 +83,12 @@ type Player struct {
 	// corresponding EntityRuntimeID for entity removal bookkeeping.
 	uniqueToRID map[int64]uint64
 
-	// Violation counters (legacy)
+	// posInitialised is false until the first UpdatePosition call has been
+	// processed. The initial Position is the zero vector, so the first
+	// velocity computation would produce a teleport-sized spike equal to the
+	// player's spawn coordinates; we skip it to avoid Speed/A false positives
+	// on join (mirrors Oomph's exempt-on-spawn behaviour).
+	posInitialised bool
 	Violations map[string]int
 }
 
@@ -153,30 +160,44 @@ func (p *Player) UpdatePosition(pos mgl32.Vec3, onGround bool) {
 	p.LastOnGround = p.OnGround
 	p.LastVelocity = p.Velocity
 
-	delta := pos.Sub(p.Position)
-	p.Velocity = delta // blocks/tick (raw positional delta)
+	if p.posInitialised {
+		delta := pos.Sub(p.Position)
+		p.Velocity = delta // blocks/tick (raw positional delta)
+	} else {
+		// First packet: no previous position to diff against; skip velocity
+		// so checks do not see a teleport-sized spike from {0,0,0} to spawn.
+		p.Velocity = mgl32.Vec3{}
+		p.posInitialised = true
+	}
 
 	p.Position = pos
 	p.OnGround = onGround
 
 	if onGround {
+		// Capture the fall distance BEFORE zeroing it so that NoFall/A can
+		// still read it via NoFallSnapshot on this same tick.
+		p.LastFallDistance = p.FallDistance
 		// Reset all airborne counters on landing.
 		p.AirTicks = 0
 		p.HoverTicks = 0
 		p.FallDistance = 0
 		p.FallStartY = 0
+		p.fallTracking = false
 	} else {
+		p.LastFallDistance = 0
 		p.AirTicks++
-		dy := delta[1]
+		dy := p.Velocity[1]
 		if dy > -hoverDeltaThreshold && dy < hoverDeltaThreshold {
 			p.HoverTicks++
 		} else {
 			p.HoverTicks = 0
 		}
-		// Fall distance tracking.
+		// Fall distance tracking: use a bool flag instead of FallStartY == 0
+		// so that players falling from Y≈0 are handled correctly.
 		if pos[1] < p.LastPosition[1] {
-			if p.FallStartY == 0 {
+			if !p.fallTracking {
 				p.FallStartY = p.LastPosition[1]
+				p.fallTracking = true
 			}
 			p.FallDistance = p.FallStartY - pos[1]
 		}
@@ -192,11 +213,12 @@ func (p *Player) HorizontalSpeed() float32 {
 	return mgl32.Vec2{p.Velocity[0], p.Velocity[2]}.Len()
 }
 
-// NoFallSnapshot returns whether the player just landed and the fall distance.
+// NoFallSnapshot returns whether the player just landed and the fall distance
+// recorded before the landing reset was applied.
 func (p *Player) NoFallSnapshot() (justLanded bool, fallDistance float32) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return p.OnGround && !p.LastOnGround, p.FallDistance
+	return p.OnGround && !p.LastOnGround, p.LastFallDistance
 }
 
 // FlySnapshot returns the data needed by Fly/A:
