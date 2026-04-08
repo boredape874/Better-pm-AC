@@ -1,46 +1,50 @@
 package movement
 
 import (
-	"github.com/boredape874/Better-pm-AC/anticheat/data"
-	"github.com/boredape874/Better-pm-AC/config"
+"github.com/boredape874/Better-pm-AC/anticheat/meta"
+"github.com/boredape874/Better-pm-AC/anticheat/data"
+"github.com/boredape874/Better-pm-AC/config"
 )
 
-const flyCheckName = "Fly"
-
-// FlyCheck detects players that remain airborne with near-zero vertical
-// velocity — i.e., hovering — which indicates the use of a fly hack.
+// FlyCheck detects players hovering in mid-air (Y velocity near zero while
+// airborne), indicating use of a Fly cheat.
+// Implements anticheat.Detection.
 type FlyCheck struct {
-	cfg config.FlyConfig
+cfg config.FlyConfig
 }
 
-// NewFlyCheck creates a new FlyCheck with the given configuration.
-func NewFlyCheck(cfg config.FlyConfig) *FlyCheck {
-	return &FlyCheck{cfg: cfg}
+func NewFlyCheck(cfg config.FlyConfig) *FlyCheck { return &FlyCheck{cfg: cfg} }
+
+func (*FlyCheck) Type() string        { return "Fly" }
+func (*FlyCheck) SubType() string     { return "A" }
+func (*FlyCheck) Description() string { return "Detects hovering in mid-air with near-zero Y velocity." }
+func (*FlyCheck) Punishable() bool    { return true }
+
+func (c *FlyCheck) DefaultMetadata() *meta.DetectionMetadata {
+return &meta.DetectionMetadata{
+FailBuffer:    3,
+MaxBuffer:     5,
+MaxViolations: float64(c.cfg.Violations),
+}
 }
 
-// Name returns the human-readable check name.
-func (c *FlyCheck) Name() string { return flyCheckName }
+func (*FlyCheck) Name() string { return "Fly/A" }
 
-// Check evaluates the player's vertical motion.
-// It returns true and the violation count when a violation is detected.
-func (c *FlyCheck) Check(p *data.Player) (flagged bool, violations int) {
-	if !c.cfg.Enabled {
-		return false, 0
-	}
-
-	airborne, yVel := p.FlySnapshot()
-	if !airborne {
-		return false, 0
-	}
-
-	// A very small absolute Y velocity (blocks/second) while airborne signals
-	// hovering. The threshold is kept intentionally low — a legitimately
-	// falling player will have yVel < -hoverThreshold within one tick.
-	const hoverThreshold = float32(0.08) // blocks/second
-	if yVel > -hoverThreshold && yVel < hoverThreshold {
-		violations = p.AddViolation(flyCheckName)
-		return true, violations
-	}
-
-	return false, 0
+// Check evaluates the player's vertical motion while airborne.
+func (c *FlyCheck) Check(p *data.Player) (bool, string) {
+if !c.cfg.Enabled {
+return false, ""
+}
+airborne, yVel := p.FlySnapshot()
+if !airborne {
+return false, ""
+}
+// A very small absolute Y velocity (blocks/second) while airborne signals
+// hovering. A legitimately falling player accumulates ~0.08 b/s per tick
+// under normal gravity, so they will quickly exceed this threshold.
+const hoverThreshold = float32(0.08) // blocks/second
+if yVel > -hoverThreshold && yVel < hoverThreshold {
+return true, "hover_yvel=near_zero"
+}
+return false, ""
 }

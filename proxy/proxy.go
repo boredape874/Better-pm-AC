@@ -16,7 +16,8 @@ import (
 )
 
 // playerEyeHeight is the vertical offset between a player's feet position and
-// eye level in Minecraft Bedrock Edition (in blocks).
+// eye level in Minecraft Bedrock Edition (in blocks). Matches Oomph's
+// game.DefaultPlayerHeightOffset constant.
 const playerEyeHeight = float32(1.62)
 
 // Proxy is the MiTM proxy that sits between Bedrock clients and a PMMP server.
@@ -46,8 +47,8 @@ return p
 // cancelled.
 func (p *Proxy) ListenAndServe(ctx context.Context) error {
 listener, err := minecraft.ListenConfig{
-// AuthenticationDisabled allows clients to connect without Xbox Live auth.
-// Set to false in production if the PMMP server handles auth separately.
+// AuthenticationDisabled allows clients to connect without Xbox Live
+// auth. Set to false in production when PMMP handles auth.
 AuthenticationDisabled: true,
 }.Listen("raknet", p.cfg.Proxy.ListenAddr)
 if err != nil {
@@ -80,8 +81,7 @@ go p.handleClient(ctx, clientConn)
 
 // handleClient manages a single client <-> server pair.
 func (p *Proxy) handleClient(ctx context.Context, client *minecraft.Conn) {
-// Dial the downstream PMMP server. TokenSource is nil => no auth (offline
-// mode). PMMP handles its own player verification.
+// Dial the downstream PMMP server (offline mode — PMMP verifies players).
 serverConn, err := minecraft.Dialer{}.DialContext(ctx, "raknet", p.cfg.Proxy.RemoteAddr)
 if err != nil {
 p.log.Error("dial server", "addr", p.cfg.Proxy.RemoteAddr, "err", err)
@@ -89,7 +89,7 @@ _ = client.Close()
 return
 }
 
-// Start the client game using the data received from the downstream server.
+// Start the client game using data received from the downstream server.
 if err := client.StartGameContext(ctx, serverConn.GameData()); err != nil {
 p.log.Error("start game (client)", "err", err)
 _ = client.Close()
@@ -109,15 +109,10 @@ p.log.Info("player connected", "username", username, "uuid", id)
 
 errc := make(chan error, 2)
 
-// Client -> Server (with anti-cheat inspection)
-go func() {
-errc <- p.clientToServer(ctx, sess)
-}()
-
-// Server -> Client (transparent forwarding)
-go func() {
-errc <- p.serverToClient(ctx, sess)
-}()
+// Client -> Server (with anti-cheat inspection).
+go func() { errc <- p.clientToServer(ctx, sess) }()
+// Server -> Client (transparent forwarding).
+go func() { errc <- p.serverToClient(ctx, sess) }()
 
 if err := <-errc; err != nil {
 p.log.Info("session ended", "username", username, "err", err)
@@ -134,21 +129,31 @@ return err
 }
 
 switch typed := pk.(type) {
+
+// ── PlayerAuthInput ──────────────────────────────────────────────────
+// Primary movement + rotation packet (server-authoritative mode).
+// Feeds tick, position, rotation into the manager in one call (OnInput).
 case *packet.PlayerAuthInput:
-// PlayerAuthInput is the server-authoritative movement packet.
-// Eye-height offset (1.62 blocks) is removed to get feet position.
 pos := mgl32.Vec3{
 typed.Position[0],
 typed.Position[1] - playerEyeHeight,
 typed.Position[2],
 }
-// Derive on-ground: vertical collision present and not mid-jump.
+// Derive on-ground from vertical-collision flag while not jumping.
 onGround := typed.InputData.Load(packet.InputFlagVerticalCollision) &&
 !typed.InputData.Load(packet.InputFlagJumping)
-p.ac.OnMove(sess.ID, pos, onGround)
 
+// Feed all state to the manager.
+p.ac.OnInput(sess.ID, typed.Tick, pos, onGround, typed.Yaw, typed.Pitch)
+
+// Missed-swing counts as a swing event (matches Oomph's handling).
+if typed.InputData.Load(packet.InputFlagMissedSwing) {
+p.ac.OnSwing(sess.ID)
+}
+
+// ── MovePlayer ──────────────────────────────────────────────────────
+// Legacy non-authoritative movement packet.
 case *packet.MovePlayer:
-// MovePlayer is used in legacy (non-authoritative) movement mode.
 pos := mgl32.Vec3{
 typed.Position[0],
 typed.Position[1] - playerEyeHeight,
@@ -156,9 +161,28 @@ typed.Position[2],
 }
 p.ac.OnMove(sess.ID, pos, typed.OnGround)
 
+// ── Animate ─────────────────────────────────────────────────────────
+// Arm-swing animation — primary swing signal for KillauraA.
+case *packet.Animate:
+if typed.ActionType == packet.AnimateActionSwingArm {
+p.ac.OnSwing(sess.ID)
+}
+
+// ── LevelSoundEvent ─────────────────────────────────────────────────
+// SoundEventAttackNoDamage fires when the player swings and hits an
+// entity that takes no damage (e.g., through a block). Oomph uses this
+// as a secondary swing + click signal.
+case *packet.LevelSoundEvent:
+if typed.SoundType == packet.SoundEventAttackNoDamage {
+p.ac.OnSwing(sess.ID)
+}
+
+// ── InventoryTransaction ─────────────────────────────────────────────
+// UseItemOnEntity with ActionType == Attack is the canonical hit packet.
 case *packet.InventoryTransaction:
 if typed.TransactionData != nil {
-if hit, ok := typed.TransactionData.(*protocol.UseItemOnEntityTransactionData); ok {
+if hit, ok := typed.TransactionData.(*protocol.UseItemOnEntityTransactionData); ok &&
+hit.ActionType == protocol.UseItemOnEntityActionAttack {
 targetID := uuidFromEntityRID(sess, hit.TargetEntityRuntimeID)
 targetPos := mgl32.Vec3{
 hit.ClickedPosition[0],
@@ -245,7 +269,8 @@ return id, identity.DisplayName
 }
 
 // uuidFromEntityRID derives a deterministic UUID from an entity runtime ID.
-// In a complete implementation a map populated from AddPlayer packets is used.
+// A full implementation should map runtime IDs → player UUIDs via AddPlayer
+// packets from the server.
 func uuidFromEntityRID(_ *Session, rid uint64) uuid.UUID {
 var id uuid.UUID
 for i := 0; i < 8; i++ {

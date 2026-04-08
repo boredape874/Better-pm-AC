@@ -1,60 +1,78 @@
 package combat
 
 import (
-	"time"
+"fmt"
 
-	"github.com/boredape874/Better-pm-AC/anticheat/data"
-	"github.com/boredape874/Better-pm-AC/config"
-	"github.com/google/uuid"
+"github.com/boredape874/Better-pm-AC/anticheat/meta"
+"github.com/boredape874/Better-pm-AC/anticheat/data"
+"github.com/boredape874/Better-pm-AC/config"
 )
 
-const killAuraCheckName = "KillAura"
+// maxSwingTickDiff is the maximum number of simulation ticks that may elapse
+// between a swing and a hit before KillauraA flags. Oomph uses 10 ticks.
+const maxSwingTickDiff = uint64(10)
 
-// KillAuraCheck detects abnormally fast attack patterns that indicate automated
-// combat (KillAura / AimBot).
-//
-// Strategy: flag attacks that arrive faster than the minimum vanilla CPS cap
-// (vanilla max ≈ 16 CPS on 20-tps server → one hit every ~62 ms).
+// KillAuraCheck (KillauraA) detects players that attack entities without
+// swinging their arm within the expected tick window. This is Oomph's primary
+// KillAura detection strategy: KillAura bots often send attack packets
+// separately from swing animations (packet.Animate / InputFlagMissedSwing).
+// Implements anticheat.Detection.
 type KillAuraCheck struct {
-	cfg config.KillAuraConfig
+cfg config.KillAuraConfig
 }
 
-// NewKillAuraCheck creates a new KillAuraCheck with the given configuration.
 func NewKillAuraCheck(cfg config.KillAuraConfig) *KillAuraCheck {
-	return &KillAuraCheck{cfg: cfg}
+return &KillAuraCheck{cfg: cfg}
 }
 
-// Name returns the human-readable check name.
-func (c *KillAuraCheck) Name() string { return killAuraCheckName }
+func (*KillAuraCheck) Type() string        { return "KillAura" }
+func (*KillAuraCheck) SubType() string     { return "A" }
+func (*KillAuraCheck) Description() string {
+return "Detects attacking without swinging arm within the expected tick window."
+}
+func (*KillAuraCheck) Punishable() bool { return true }
 
-// Check evaluates whether the latest attack arrived suspiciously soon after the
-// previous one. target is the UUID of the attacked entity.
-func (c *KillAuraCheck) Check(p *data.Player, target uuid.UUID) (flagged bool, violations int) {
-	if !c.cfg.Enabled {
-		return false, 0
-	}
+func (c *KillAuraCheck) DefaultMetadata() *meta.DetectionMetadata {
+return &meta.DetectionMetadata{
+FailBuffer:    1,
+MaxBuffer:     1,
+MaxViolations: float64(c.cfg.Violations),
+}
+}
 
-	lastTime, lastTarget := p.LastAttackInfo()
+func (*KillAuraCheck) Name() string { return "KillAura/A" }
 
-	// Minimum interval between attacks (vanilla ~62 ms at max CPS).
-	const minAttackInterval = 50 * time.Millisecond
+// Check evaluates whether the attack was accompanied by a recent arm swing.
+//
+// Logic (mirrors Oomph KillauraA):
+//   - currentTick = player's SimulationFrame at time of attack
+//   - lastSwing   = SimulationFrame of last packet.Animate / MissedSwing event
+//   - tickDiff    = currentTick - lastSwing
+//   - Flag if tickDiff > maxSwingTickDiff (i.e., no swing in the last 10 ticks)
+func (c *KillAuraCheck) Check(p *data.Player) (bool, string) {
+if !c.cfg.Enabled {
+return false, ""
+}
 
-	now := time.Now()
-	elapsed := now.Sub(lastTime)
+currentTick := p.SimFrame()
+lastSwing := p.SwingTick()
 
-	// Flag if attacks come in faster than vanilla allows.
-	if !lastTime.IsZero() && elapsed < minAttackInterval {
-		violations = p.AddViolation(killAuraCheckName)
-		return true, violations
-	}
+// On first attack before any swing has been recorded (lastSwing == 0),
+// give the player a grace pass to avoid false positives on join.
+if lastSwing == 0 {
+return false, ""
+}
 
-	// Flag multi-target attacks within a single tick (AimBot heuristic).
-	if !lastTime.IsZero() && elapsed < minAttackInterval && lastTarget != target {
-		violations = p.AddViolation(killAuraCheckName)
-		return true, violations
-	}
+var tickDiff uint64
+if currentTick >= lastSwing {
+tickDiff = currentTick - lastSwing
+} else {
+// Tick wrapped or teleport/reconnect — reset gracefully.
+return false, ""
+}
 
-	// Record this attack.
-	p.RecordAttack(target)
-	return false, 0
+if tickDiff > maxSwingTickDiff {
+return true, fmt.Sprintf("tick_diff=%d last_swing=%d current=%d", tickDiff, lastSwing, currentTick)
+}
+return false, ""
 }
