@@ -22,6 +22,14 @@ const hoverDeltaThreshold = float32(0.005)
 // a body of water and lands on ground within half a second (~10 ticks at 20 TPS).
 const waterExitGraceTicks = 10
 
+// noFallBSpeedThreshold is the minimum downward Y displacement (blocks/tick)
+// that triggers GroundFallTicks accumulation. If a player claims OnGround=true
+// while their Y position delta exceeds this threshold downward, it is counted
+// as a potential OnGround-spoof tick. The value is conservative (0.3 b/tick)
+// to avoid counting legitimate landing frames where some downward velocity
+// remains before the collision resolves.
+const noFallBSpeedThreshold = float32(0.3)
+
 // Player stores per-session state used by all anti-cheat checks.
 type Player struct {
 	mu sync.RWMutex
@@ -51,8 +59,17 @@ type Player struct {
 	// Mirroring Oomph's grace-period approach: we skip the fly check for
 	// the first N airborne ticks to cover the natural jump arc.
 	AirTicks int
+	// LastAirTicks holds the AirTicks value captured just before the last
+	// on-ground reset. Used by NoFall/B to know how long the player was
+	// airborne before they claimed to land.
+	LastAirTicks int
 	// HoverTicks counts consecutive airborne packets where |dy| < hoverDeltaThreshold.
 	HoverTicks int
+	// GroundFallTicks counts consecutive ticks where the player claims to be
+	// on the ground (OnGround=true) while their Y position delta is negative
+	// beyond the NoFall/B detection threshold. Used to detect clients that
+	// spoof OnGround=true on every packet while continuously falling.
+	GroundFallTicks int
 
 	// Fall tracking
 	FallDistance     float32
@@ -104,6 +121,11 @@ type Player struct {
 	ClickTimestamps  []time.Time
 	LastAttackTime   time.Time
 	LastAttackTarget uuid.UUID
+	// LastAttackTick is the SimulationFrame of the most recent attack event.
+	// LastAttackCount is the number of distinct entities attacked in that tick.
+	// KillAura/C uses these to detect bots that hit multiple targets in one tick.
+	LastAttackTick  uint64
+	LastAttackCount int
 
 	// inputTimestamps records the wall-clock arrival time of each
 	// PlayerAuthInput packet within a rolling one-second window.
@@ -238,14 +260,27 @@ func (p *Player) UpdatePosition(pos mgl32.Vec3, onGround bool) {
 		// Capture the fall distance BEFORE zeroing it so that NoFall/A can
 		// still read it via NoFallSnapshot on this same tick.
 		p.LastFallDistance = p.FallDistance
+		// Capture AirTicks before resetting so NoFall/B can check how long
+		// the player was airborne before they claimed to land.
+		p.LastAirTicks = p.AirTicks
 		// Reset all airborne counters on landing.
 		p.AirTicks = 0
 		p.HoverTicks = 0
 		p.FallDistance = 0
 		p.FallStartY = 0
 		p.fallTracking = false
+
+		// GroundFallTicks: accumulate when player claims ground while still
+		// falling; reset when the Y delta is not significantly negative.
+		dy := p.Velocity[1]
+		if dy < -noFallBSpeedThreshold {
+			p.GroundFallTicks++
+		} else {
+			p.GroundFallTicks = 0
+		}
 	} else {
 		p.LastFallDistance = 0
+		p.GroundFallTicks = 0 // player is genuinely airborne; reset the spoof counter
 		p.AirTicks++
 		dy := p.Velocity[1]
 		if dy > -hoverDeltaThreshold && dy < hoverDeltaThreshold {
@@ -291,6 +326,17 @@ func (p *Player) FlySnapshot() (airborne bool, yDeltaPerTick float32, airTicks, 
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return !p.OnGround, p.Velocity[1], p.AirTicks, p.HoverTicks
+}
+
+// GroundFallSnapshot returns data needed by NoFall/B to detect OnGround spoofing:
+//   - groundFallTicks: consecutive ticks the player claimed OnGround while
+//     their Y delta was below -noFallBSpeedThreshold (potential spoof counter)
+//   - yDelta: current Y positional delta (blocks/tick)
+//   - onGround: whether the client currently claims to be on the ground
+func (p *Player) GroundFallSnapshot() (groundFallTicks int, yDelta float32, onGround bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.GroundFallTicks, p.Velocity[1], p.OnGround
 }
 
 // CurrentPosition returns the player's current position (thread-safe).
@@ -526,11 +572,27 @@ func (p *Player) LastAttackInfo() (time.Time, uuid.UUID) {
 }
 
 // RecordAttack records the time and target of the most recent attack.
+// It also tracks the per-tick attack count for KillAura/C.
 func (p *Player) RecordAttack(target uuid.UUID) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.LastAttackTime = time.Now()
 	p.LastAttackTarget = target
+	currentTick := p.SimulationFrame
+	if currentTick == p.LastAttackTick {
+		p.LastAttackCount++
+	} else {
+		p.LastAttackTick = currentTick
+		p.LastAttackCount = 1
+	}
+}
+
+// AttackTickCount returns the current SimulationFrame and the number of distinct
+// attack events recorded in that tick. Used by KillAura/C.
+func (p *Player) AttackTickCount() (tick uint64, count int) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.LastAttackTick, p.LastAttackCount
 }
 
 // UpdateEntityPos records the latest world position for an entity runtime ID.

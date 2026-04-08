@@ -27,15 +27,18 @@ type AnticheatConfig struct {
 	Speed        SpeedConfig        `toml:"speed"`
 	Fly          FlyConfig          `toml:"fly"`
 	NoFall       NoFallConfig       `toml:"nofall"`
+	NoFallB      NoFallBConfig      `toml:"nofall_b"`
 	Reach        ReachConfig        `toml:"reach"`
 	KillAura     KillAuraConfig     `toml:"killaura"`
 	KillAuraB    KillAuraBConfig    `toml:"killaura_b"`
+	KillAuraC    KillAuraCConfig    `toml:"killaura_c"`
 	AutoClicker  AutoClickerConfig  `toml:"autoclicker"`
 	AutoClickerB AutoClickerBConfig `toml:"autoclicker_b"`
 	Aim          AimConfig          `toml:"aim"`
 	BadPacket    BadPacketConfig    `toml:"badpacket"`
 	BadPacketB   BadPacketBConfig   `toml:"badpacket_b"`
 	BadPacketC   BadPacketCConfig   `toml:"badpacket_c"`
+	BadPacketD   BadPacketDConfig   `toml:"badpacket_d"`
 	Timer        TimerConfig        `toml:"timer"`
 }
 
@@ -58,6 +61,12 @@ type NoFallConfig struct {
 	Violations int  `toml:"violations"`
 }
 
+// NoFallBConfig configures the NoFall/B check (persistent OnGround spoof).
+type NoFallBConfig struct {
+	Enabled    bool `toml:"enabled"`
+	Violations int  `toml:"violations"`
+}
+
 // ReachConfig configures the Reach/A check.
 type ReachConfig struct {
 	Enabled    bool    `toml:"enabled"`
@@ -73,6 +82,12 @@ type KillAuraConfig struct {
 
 // KillAuraBConfig configures the KillAura/B check (angle-based FOV detection).
 type KillAuraBConfig struct {
+	Enabled    bool `toml:"enabled"`
+	Violations int  `toml:"violations"`
+}
+
+// KillAuraCConfig configures the KillAura/C check (multi-target per-tick).
+type KillAuraCConfig struct {
 	Enabled    bool `toml:"enabled"`
 	Violations int  `toml:"violations"`
 }
@@ -116,6 +131,12 @@ type BadPacketCConfig struct {
 	Violations int  `toml:"violations"`
 }
 
+// BadPacketDConfig configures the BadPacket/D check (NaN/Infinity position).
+type BadPacketDConfig struct {
+	Enabled    bool `toml:"enabled"`
+	Violations int  `toml:"violations"`
+}
+
 // TimerConfig configures the Timer/A check.
 // MaxRatePS is the maximum number of PlayerAuthInput packets allowed per second.
 // At 20 TPS the expected rate is exactly 20; 25 gives a 25% tolerance for
@@ -137,15 +158,18 @@ func Default() Config {
 			Speed:        SpeedConfig{Enabled: true, MaxSpeed: 0.7, Violations: 10},
 			Fly:          FlyConfig{Enabled: true, Violations: 5},
 			NoFall:       NoFallConfig{Enabled: true, Violations: 5},
+			NoFallB:      NoFallBConfig{Enabled: true, Violations: 5},
 			Reach:        ReachConfig{Enabled: true, MaxReach: 3.1, Violations: 7},
 			KillAura:     KillAuraConfig{Enabled: true, Violations: 1},
 			KillAuraB:    KillAuraBConfig{Enabled: true, Violations: 5},
+			KillAuraC:    KillAuraCConfig{Enabled: true, Violations: 3},
 			AutoClicker:  AutoClickerConfig{Enabled: true, MaxCPS: 20, Violations: 20},
 			AutoClickerB: AutoClickerBConfig{Enabled: true, StdDevThreshold: 5.0, MinSamples: 8, Violations: 15},
 			Aim:          AimConfig{Enabled: true, Violations: 20},
 			BadPacket:    BadPacketConfig{Enabled: true, Violations: 1},
 			BadPacketB:   BadPacketBConfig{Enabled: true, Violations: 1},
 			BadPacketC:   BadPacketCConfig{Enabled: true, Violations: 1},
+			BadPacketD:   BadPacketDConfig{Enabled: true, Violations: 1},
 			Timer:        TimerConfig{Enabled: true, MaxRatePS: 25, Violations: 5},
 		},
 	}

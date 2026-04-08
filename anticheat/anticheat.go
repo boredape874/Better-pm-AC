@@ -27,15 +27,18 @@ type playerDetections struct {
 	speed        *DetectionMetadata
 	fly          *DetectionMetadata
 	noFall       *DetectionMetadata
+	noFallB      *DetectionMetadata
 	reach        *DetectionMetadata
 	killAura     *DetectionMetadata
 	killAuraB    *DetectionMetadata
+	killAuraC    *DetectionMetadata
 	autoClicker  *DetectionMetadata
 	autoClickerB *DetectionMetadata
 	aim          *DetectionMetadata
 	badPacket    *DetectionMetadata
 	badPacketB   *DetectionMetadata
 	badPacketC   *DetectionMetadata
+	badPacketD   *DetectionMetadata
 	timer        *DetectionMetadata
 }
 
@@ -52,15 +55,18 @@ type Manager struct {
 	speed        *movement.SpeedCheck
 	fly          *movement.FlyCheck
 	noFall       *movement.NoFallCheck
+	noFallB      *movement.NoFallBCheck
 	reach        *combat.ReachCheck
 	killAura     *combat.KillAuraCheck
 	killAuraB    *combat.KillAuraBCheck
+	killAuraC    *combat.KillAuraCCheck
 	autoClicker  *combat.AutoClickerCheck
 	autoClickerB *combat.AutoClickerBCheck
 	aim          *combat.AimCheck
 	badPacket    *pkt.BadPacketCheck
 	badPacketB   *pkt.BadPacketBCheck
 	badPacketC   *pkt.BadPacketCCheck
+	badPacketD   *pkt.BadPacketDCheck
 	timer        *movement.TimerCheck
 
 	// KickFunc is called when a player should be disconnected.
@@ -77,15 +83,18 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		speed:        movement.NewSpeedCheck(cfg.Speed),
 		fly:          movement.NewFlyCheck(cfg.Fly),
 		noFall:       movement.NewNoFallCheck(cfg.NoFall),
+		noFallB:      movement.NewNoFallBCheck(cfg.NoFallB),
 		reach:        combat.NewReachCheck(cfg.Reach),
 		killAura:     combat.NewKillAuraCheck(cfg.KillAura),
 		killAuraB:    combat.NewKillAuraBCheck(cfg.KillAuraB),
+		killAuraC:    combat.NewKillAuraCCheck(cfg.KillAuraC),
 		autoClicker:  combat.NewAutoClickerCheck(cfg.AutoClicker),
 		autoClickerB: combat.NewAutoClickerBCheck(cfg.AutoClickerB),
 		aim:          combat.NewAimCheck(cfg.Aim),
 		badPacket:    pkt.NewBadPacketCheck(cfg.BadPacket),
 		badPacketB:   pkt.NewBadPacketBCheck(cfg.BadPacketB),
 		badPacketC:   pkt.NewBadPacketCCheck(cfg.BadPacketC),
+		badPacketD:   pkt.NewBadPacketDCheck(cfg.BadPacketD),
 		timer:        movement.NewTimerCheck(cfg.Timer),
 	}
 }
@@ -95,15 +104,18 @@ func (m *Manager) newPlayerDetections() *playerDetections {
 		speed:        m.speed.DefaultMetadata(),
 		fly:          m.fly.DefaultMetadata(),
 		noFall:       m.noFall.DefaultMetadata(),
+		noFallB:      m.noFallB.DefaultMetadata(),
 		reach:        m.reach.DefaultMetadata(),
 		killAura:     m.killAura.DefaultMetadata(),
 		killAuraB:    m.killAuraB.DefaultMetadata(),
+		killAuraC:    m.killAuraC.DefaultMetadata(),
 		autoClicker:  m.autoClicker.DefaultMetadata(),
 		autoClickerB: m.autoClickerB.DefaultMetadata(),
 		aim:          m.aim.DefaultMetadata(),
 		badPacket:    m.badPacket.DefaultMetadata(),
 		badPacketB:   m.badPacketB.DefaultMetadata(),
 		badPacketC:   m.badPacketC.DefaultMetadata(),
+		badPacketD:   m.badPacketD.DefaultMetadata(),
 		timer:        m.timer.DefaultMetadata(),
 	}
 }
@@ -180,6 +192,16 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 	// Record arrival time for Timer/A before any state updates.
 	p.RecordInputTime()
 
+	// BadPacket/D: NaN/Infinity position — run before UpdatePosition so a
+	// poison packet cannot corrupt the player's position state.
+	if flagged, info := m.badPacketD.Check(pos); flagged {
+		if det.badPacketD.Fail(int64(tick)) {
+			m.handleViolation(p, m.badPacketD, det.badPacketD, info)
+		}
+		// Do not process further: updating state with NaN/Inf would corrupt checks.
+		return
+	}
+
 	// BadPacket/A (tick validation) runs before UpdateTick so it can compare
 	// the incoming tick against the previously stored simulation frame.
 	if flagged, info := m.badPacket.Check(p, tick); flagged {
@@ -250,6 +272,17 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 		}
 	} else {
 		det.noFall.Pass(0.5)
+	}
+
+	// NoFall/B: OnGround spoof detection.
+	if !teleportGrace {
+		if flagged, info := m.noFallB.Check(p); flagged {
+			if det.noFallB.Fail(int64(tick)) {
+				m.handleViolation(p, m.noFallB, det.noFallB, info)
+			}
+		} else {
+			det.noFallB.Pass(0.2)
+		}
 	}
 
 	// Aim/A
@@ -346,6 +379,14 @@ func (m *Manager) OnAttack(attackerID, targetID uuid.UUID, targetRID uint64) {
 		}
 	} else {
 		det.killAura.Pass(1.0)
+	}
+
+	// KillAura/C: multi-target per-tick.
+	// RecordAttack (called above) already updated the per-tick attack count.
+	if flagged, info := m.killAuraC.Check(p); flagged {
+		if det.killAuraC.Fail(tick) {
+			m.handleViolation(p, m.killAuraC, det.killAuraC, info)
+		}
 	}
 
 	// AutoClicker/A: CPS limit.

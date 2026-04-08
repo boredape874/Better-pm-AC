@@ -142,10 +142,16 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 			// with the Swimming flags it gives a reliable in-water signal.
 			inWater := typed.InputData.Load(packet.InputFlagAutoJumpingInWater) ||
 				typed.InputData.Load(packet.InputFlagStartSwimming)
+			stoppedSwimming := typed.InputData.Load(packet.InputFlagStopSwimming)
 
 			// Apply input state to player data so checks can read it.
 			if pl := p.ac.GetPlayer(sess.ID); pl != nil {
 				pl.SetInputFlags(sprinting, sneaking, inWater)
+				// When the client signals it has stopped swimming, ensure the
+				// water flag is cleared so the water-exit grace fires correctly.
+				if stoppedSwimming {
+					pl.SetInputFlags(sprinting, sneaking, false)
+				}
 
 				// Track elytra gliding state from the start/stop events in
 				// InputData so that Fly/A can exempt gliding players.
