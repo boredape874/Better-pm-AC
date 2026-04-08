@@ -33,8 +33,10 @@ func (c *FlyCheck) Check(p *data.Player) (flagged bool, violations int) {
 		return false, 0
 	}
 
-	// A very small absolute Y velocity while airborne signals hovering.
-	const hoverThreshold = float32(0.08) // blocks/s
+	// A very small absolute Y velocity (blocks/second) while airborne signals
+	// hovering. The threshold is kept intentionally low — a legitimately
+	// falling player will have yVel < -hoverThreshold within one tick.
+	const hoverThreshold = float32(0.08) // blocks/second
 	if yVel > -hoverThreshold && yVel < hoverThreshold {
 		violations = p.AddViolation(flyCheckName)
 		return true, violations

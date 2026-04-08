@@ -15,6 +15,10 @@ import (
 "github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
+// playerEyeHeight is the vertical offset between a player's feet position and
+// eye level in Minecraft Bedrock Edition (in blocks).
+const playerEyeHeight = float32(1.62)
+
 // Proxy is the MiTM proxy that sits between Bedrock clients and a PMMP server.
 type Proxy struct {
 cfg config.Config
@@ -135,7 +139,7 @@ case *packet.PlayerAuthInput:
 // Eye-height offset (1.62 blocks) is removed to get feet position.
 pos := mgl32.Vec3{
 typed.Position[0],
-typed.Position[1] - 1.62,
+typed.Position[1] - playerEyeHeight,
 typed.Position[2],
 }
 // Derive on-ground: vertical collision present and not mid-jump.
@@ -147,7 +151,7 @@ case *packet.MovePlayer:
 // MovePlayer is used in legacy (non-authoritative) movement mode.
 pos := mgl32.Vec3{
 typed.Position[0],
-typed.Position[1] - 1.62,
+typed.Position[1] - playerEyeHeight,
 typed.Position[2],
 }
 p.ac.OnMove(sess.ID, pos, typed.OnGround)

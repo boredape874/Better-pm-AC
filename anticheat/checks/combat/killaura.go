@@ -49,7 +49,7 @@ func (c *KillAuraCheck) Check(p *data.Player, target uuid.UUID) (flagged bool, v
 	}
 
 	// Flag multi-target attacks within a single tick (AimBot heuristic).
-	if !lastTime.IsZero() && elapsed < 50*time.Millisecond && lastTarget != target {
+	if !lastTime.IsZero() && elapsed < minAttackInterval && lastTarget != target {
 		violations = p.AddViolation(killAuraCheckName)
 		return true, violations
 	}
