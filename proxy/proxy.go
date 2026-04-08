@@ -146,6 +146,7 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 
 			// Apply input state to player data so checks can read it.
 			if pl := p.ac.GetPlayer(sess.ID); pl != nil {
+				pl.SetLatency(sess.Client.Latency())
 				pl.SetInputFlags(sprinting, sneaking, inWater)
 				// When the client signals it has stopped swimming, ensure the
 				// water flag is cleared so the water-exit grace fires correctly.

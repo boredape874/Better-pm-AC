@@ -174,6 +174,13 @@ type Player struct {
 	// player's spawn coordinates; we skip it to avoid Speed/A false positives
 	// on join (mirrors Oomph's exempt-on-spawn behaviour).
 	posInitialised bool
+
+	// latency is the round-trip time between the client and this proxy,
+	// measured by gophertunnel and updated each PlayerAuthInput packet.
+	// Reach/A and KillAura/A use it to apply lag compensation so that
+	// high-latency players are not falsely flagged.
+	latency time.Duration
+
 	Violations map[string]int
 }
 
@@ -545,6 +552,23 @@ func (p *Player) HasKnockbackGrace() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.knockbackGrace > 0
+}
+
+// SetLatency stores the latest measured round-trip time between the client and
+// the proxy. Called once per PlayerAuthInput packet from proxy.clientToServer
+// using conn.Latency().
+func (p *Player) SetLatency(d time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.latency = d
+}
+
+// Latency returns the last measured client-to-proxy round-trip time.
+// Reach/A and KillAura/A use this for lag compensation.
+func (p *Player) Latency() time.Duration {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.latency
 }
 
 // HasRecentWaterExit returns true when the player has left water within the

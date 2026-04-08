@@ -22,6 +22,12 @@ const sneakSpeedMultiplier = float32(0.30)
 // etc. Formula: maxSpeed *= (1 + speedEffectBonus * (amplifier + 1)).
 const speedEffectBonus = float32(0.20)
 
+// slownessSpeedPenalty is the speed penalty per amplifier level for the
+// Slowness potion effect. Slowness I (amplifier=0) reduces speed by 15%,
+// Slowness II (amplifier=1) by 30%, etc.
+// Formula: maxSpeed *= (1 - slownessSpeedPenalty * (amplifier + 1)).
+const slownessSpeedPenalty = float32(0.15)
+
 // SpeedCheck flags players whose horizontal movement exceeds the configured
 // limit per tick. Velocity is now a raw positional delta (blocks/tick) rather
 // than a wall-clock-derived blocks/second value, matching how Oomph computes
@@ -96,6 +102,17 @@ func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
 	// Mirrors Oomph's attribute-based limit adjustment.
 	if amp, active := p.EffectAmplifier(packet.EffectSpeed); active {
 		maxSpeed *= 1.0 + speedEffectBonus*float32(amp+1)
+	}
+
+	// Adjust for an active Slowness potion effect (effect type 2 = Slowness).
+	// Slowness I (amplifier 0) reduces speed by 15%, Slowness II by 30%, etc.
+	// This tightens the allowed range and closes a detection gap where a player
+	// using a speed hack below the unmodified limit would pass the check.
+	if amp, active := p.EffectAmplifier(packet.EffectSlowness); active {
+		maxSpeed *= 1.0 - slownessSpeedPenalty*float32(amp+1)
+		if maxSpeed < 0 {
+			maxSpeed = 0
+		}
 	}
 
 	if speed > maxSpeed {

@@ -14,6 +14,17 @@ import (
 // Vanilla reach is measured from the attacker's eye position, not their feet.
 const attackerEyeHeight = float32(1.62)
 
+// reachMaxEntitySpeed is a conservative upper bound on how fast an entity
+// can move per tick (blocks/tick). A sprinting player does ~0.28 b/tick;
+// 0.3 gives a small margin for potion effects. This is used to compute the
+// ping-based reach compensation window.
+const reachMaxEntitySpeed = float32(0.3)
+
+// reachPingCompCap is the maximum extra reach (blocks) that can be granted due
+// to ping compensation. Capping prevents spoofed or extreme latency values from
+// opening a near-unlimited reach window. 1.0 block matches Oomph's limit.
+const reachPingCompCap = float32(1.0)
+
 // ReachCheck detects attacks on entities that are beyond the configured reach
 // distance, indicating Reach or long-sword cheats.
 // Implements anticheat.Detection.
@@ -57,8 +68,22 @@ func (c *ReachCheck) Check(p *data.Player, targetPos mgl32.Vec3) (bool, string) 
 	// Convert stored feet position back to eye level for accurate reach check.
 	eyePos := mgl32.Vec3{feetPos[0], feetPos[1] + attackerEyeHeight, feetPos[2]}
 	dist := eyePos.Sub(targetPos).Len()
-	if dist > float32(c.cfg.MaxReach) {
-		return true, fmt.Sprintf("dist=%.3f max=%.1f", dist, c.cfg.MaxReach)
+
+	// Ping compensation (mirrors Oomph / GrimAC lag-compensation):
+	// The client's view of entity positions lags behind the server's by
+	// approximately RTT/2. During that window an entity can drift at most
+	// reachMaxEntitySpeed b/tick. We widen the allowed reach accordingly,
+	// capped at reachPingCompCap to limit abuse via spoofed high ping.
+	latency := p.Latency()
+	pingTicks := float32(latency.Seconds()) * 20.0 / 2.0 // one-way delay in ticks
+	pingComp := pingTicks * reachMaxEntitySpeed
+	if pingComp > reachPingCompCap {
+		pingComp = reachPingCompCap
+	}
+
+	maxReach := float32(c.cfg.MaxReach) + pingComp
+	if dist > maxReach {
+		return true, fmt.Sprintf("dist=%.3f max=%.3f ping_comp=%.3f", dist, maxReach, pingComp)
 	}
 	return false, ""
 }

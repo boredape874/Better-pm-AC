@@ -8,9 +8,17 @@ import (
 	"github.com/boredape874/Better-pm-AC/config"
 )
 
-// maxSwingTickDiff is the maximum number of simulation ticks that may elapse
-// between a swing and a hit before KillauraA flags. Oomph uses 10 ticks.
+// maxSwingTickDiff is the baseline maximum number of simulation ticks that may
+// elapse between a swing and a hit before KillauraA flags. Oomph uses 10 ticks.
+// The effective window is extended by the player's one-way ping in ticks so
+// that high-latency clients whose swing and hit packets arrive out of order
+// are not falsely flagged.
 const maxSwingTickDiff = uint64(10)
+
+// maxSwingPingCapTicks caps the extra swing-window granted by ping compensation.
+// At 20 TPS, 10 extra ticks = 500 ms one-way, which covers even very high-latency
+// connections without allowing unbounded tolerance.
+const maxSwingPingCapTicks = uint64(10)
 
 // KillAuraCheck (KillauraA) detects players that attack entities without
 // swinging their arm within the expected tick window. This is Oomph's primary
@@ -71,8 +79,19 @@ func (c *KillAuraCheck) Check(p *data.Player) (bool, string) {
 		return false, ""
 	}
 
-	if tickDiff > maxSwingTickDiff {
-		return true, fmt.Sprintf("tick_diff=%d last_swing=%d current=%d", tickDiff, lastSwing, currentTick)
+	// Extend the allowed window by one-way ping in ticks so that high-latency
+	// clients whose swing packet arrives after the attack packet are not falsely
+	// flagged. Cap the extension to maxSwingPingCapTicks (mirrors GrimAC's
+	// latency-compensated KillauraA window).
+	latency := p.Latency()
+	pingTicks := uint64(latency.Seconds() * 20.0 / 2.0)
+	if pingTicks > maxSwingPingCapTicks {
+		pingTicks = maxSwingPingCapTicks
+	}
+	effectiveMax := maxSwingTickDiff + pingTicks
+
+	if tickDiff > effectiveMax {
+		return true, fmt.Sprintf("tick_diff=%d last_swing=%d current=%d max=%d", tickDiff, lastSwing, currentTick, effectiveMax)
 	}
 	return false, ""
 }

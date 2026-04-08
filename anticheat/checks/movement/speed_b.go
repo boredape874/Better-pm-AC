@@ -96,6 +96,14 @@ func (c *SpeedBCheck) Check(p *data.Player) (bool, string) {
 		maxSpeed *= 1.0 + speedEffectBonus*float32(amp+1)
 	}
 
+	// Slowness potion effect decreases the limit (same formula as Speed/A).
+	if amp, active := p.EffectAmplifier(packet.EffectSlowness); active {
+		maxSpeed *= 1.0 - slownessSpeedPenalty*float32(amp+1)
+		if maxSpeed < 0 {
+			maxSpeed = 0
+		}
+	}
+
 	if speed > maxSpeed {
 		return true, fmt.Sprintf("air_speed=%.4f max=%.4f air_ticks=%d", speed, maxSpeed, airTicks)
 	}
