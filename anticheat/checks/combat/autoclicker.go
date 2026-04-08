@@ -32,7 +32,9 @@ func (c *AutoClickerCheck) DefaultMetadata() *meta.DetectionMetadata {
 		FailBuffer:    4,
 		MaxBuffer:     4,
 		MaxViolations: float64(c.cfg.Violations),
-		TrustDuration: -1, // no decay — repeated fast clicking should stack
+		// Violations decay after 30 s (600 ticks at 20 TPS) of clean play
+		// so that transient burst-click patterns don't accumulate permanently.
+		TrustDuration: 30 * 20,
 	}
 }
 

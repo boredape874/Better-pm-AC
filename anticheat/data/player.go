@@ -17,6 +17,11 @@ const cpsWindow = time.Second
 // for an extended period indicate a Fly cheat.
 const hoverDeltaThreshold = float32(0.005)
 
+// waterExitGraceTicks is the number of ticks after a water→ground transition
+// during which NoFall/A is suppressed. Covers the case where a player exits
+// a body of water and lands on ground within half a second (~10 ticks at 20 TPS).
+const waterExitGraceTicks = 10
+
 // Player stores per-session state used by all anti-cheat checks.
 type Player struct {
 	mu sync.RWMutex
@@ -79,9 +84,20 @@ type Player struct {
 	// Sprinting and Sneaking affect the expected horizontal speed limits.
 	// InWater indicates the player is swimming / auto-jumping in water, which
 	// exempts them from NoFall checks (water absorbs fall damage).
+	// Gliding is true while the player is wearing and using an elytra (set from
+	// InputFlagStartGliding / InputFlagStopGliding events). Fly/A exempts
+	// gliding players because elytras legitimately sustain horizontal flight.
 	Sprinting bool
 	Sneaking  bool
 	InWater   bool
+	Gliding   bool
+
+	// waterExitGrace counts down (ticks) after the player transitions from
+	// in-water to out-of-water. While positive, NoFall/A is suppressed so that
+	// a player who exits a body of water and immediately lands on the ground is
+	// not falsely flagged (the fall distance counter accumulated while in the
+	// water is not meaningful for damage purposes).
+	waterExitGrace int
 
 	// Combat
 	LastSwingTick    uint64
@@ -211,6 +227,12 @@ func (p *Player) UpdatePosition(pos mgl32.Vec3, onGround bool) {
 
 	p.Position = pos
 	p.OnGround = onGround
+
+	// Decrement the water-exit grace counter each tick so that it expires
+	// automatically after waterExitGraceTicks ticks regardless of landing.
+	if p.waterExitGrace > 0 {
+		p.waterExitGrace--
+	}
 
 	if onGround {
 		// Capture the fall distance BEFORE zeroing it so that NoFall/A can
@@ -352,9 +374,17 @@ func (p *Player) InputRate() int {
 // SetInputFlags stores per-tick boolean state flags derived from
 // PlayerAuthInput.InputData. These are read by movement checks to apply
 // appropriate speed limits and exemptions.
+// It also detects the water→not-water transition and sets a grace window so
+// that NoFall/A does not flag players who exit a body of water and land
+// within a few ticks (the accumulated fall-distance counter is not meaningful
+// for damage purposes in that scenario).
 func (p *Player) SetInputFlags(sprinting, sneaking, inWater bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// Detect water→not-water transition.
+	if p.InWater && !inWater {
+		p.waterExitGrace = waterExitGraceTicks
+	}
 	p.Sprinting = sprinting
 	p.Sneaking = sneaking
 	p.InWater = inWater
@@ -373,6 +403,41 @@ func (p *Player) IsOnGround() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.OnGround
+}
+
+// IsGliding returns whether the player is currently gliding with an elytra.
+// Gliding state is managed by StartGliding() / StopGliding() which are called
+// from the proxy layer when InputFlagStartGliding / InputFlagStopGliding are
+// observed in PlayerAuthInput.InputData.
+func (p *Player) IsGliding() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.Gliding
+}
+
+// StartGliding marks the player as gliding (elytra activated).
+// Called from the proxy clientToServer handler when InputFlagStartGliding is set.
+func (p *Player) StartGliding() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Gliding = true
+}
+
+// StopGliding marks the player as no longer gliding.
+// Called from the proxy clientToServer handler when InputFlagStopGliding is set.
+func (p *Player) StopGliding() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Gliding = false
+}
+
+// HasRecentWaterExit returns true when the player has left water within the
+// last waterExitGraceTicks ticks. NoFall/A uses this to suppress false positives
+// from fall-distance that was accumulated while swimming.
+func (p *Player) HasRecentWaterExit() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.waterExitGrace > 0
 }
 
 // GetInputMode returns the latest InputMode (thread-safe).

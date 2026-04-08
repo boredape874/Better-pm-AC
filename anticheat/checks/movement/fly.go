@@ -61,6 +61,11 @@ func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 	if p.IsCreative() {
 		return false, ""
 	}
+	// Players gliding with an elytra are legitimately airborne without falling;
+	// their Y velocity is sustained by horizontal momentum, not a cheat.
+	if p.IsGliding() {
+		return false, ""
+	}
 	airborne, _, airTicks, hoverTicks := p.FlySnapshot()
 	if !airborne {
 		return false, ""

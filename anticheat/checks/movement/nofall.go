@@ -55,5 +55,11 @@ func (c *NoFallCheck) Check(p *data.Player) (bool, string) {
 	if inWater {
 		return false, ""
 	}
+	// Exempt players who recently exited water within the grace window.
+	// A player can fall inside water and land on the ground just after
+	// exiting; the accumulated fall distance is not meaningful for damage.
+	if p.HasRecentWaterExit() {
+		return false, ""
+	}
 	return true, fmt.Sprintf("fall_dist=%.2f threshold=%.1f", fallDist, noFallDamageThreshold)
 }

@@ -34,6 +34,7 @@ type AnticheatConfig struct {
 	Aim         AimConfig         `toml:"aim"`
 	BadPacket   BadPacketConfig   `toml:"badpacket"`
 	BadPacketB  BadPacketBConfig  `toml:"badpacket_b"`
+	BadPacketC  BadPacketCConfig  `toml:"badpacket_c"`
 	Timer       TimerConfig       `toml:"timer"`
 }
 
@@ -100,6 +101,12 @@ type BadPacketBConfig struct {
 	Violations int  `toml:"violations"`
 }
 
+// BadPacketCConfig configures the BadPacket/C check (sprint+sneak simultaneously).
+type BadPacketCConfig struct {
+	Enabled    bool `toml:"enabled"`
+	Violations int  `toml:"violations"`
+}
+
 // TimerConfig configures the Timer/A check.
 // MaxRatePS is the maximum number of PlayerAuthInput packets allowed per second.
 // At 20 TPS the expected rate is exactly 20; 25 gives a 25% tolerance for
@@ -128,6 +135,7 @@ func Default() Config {
 			Aim:         AimConfig{Enabled: true, Violations: 20},
 			BadPacket:   BadPacketConfig{Enabled: true, Violations: 1},
 			BadPacketB:  BadPacketBConfig{Enabled: true, Violations: 1},
+			BadPacketC:  BadPacketCConfig{Enabled: true, Violations: 1},
 			Timer:       TimerConfig{Enabled: true, MaxRatePS: 25, Violations: 5},
 		},
 	}

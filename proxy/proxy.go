@@ -147,6 +147,15 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 			if pl := p.ac.GetPlayer(sess.ID); pl != nil {
 				pl.SetInputFlags(sprinting, sneaking, inWater)
 
+				// Track elytra gliding state from the start/stop events in
+				// InputData so that Fly/A can exempt gliding players.
+				if typed.InputData.Load(packet.InputFlagStartGliding) {
+					pl.StartGliding()
+				}
+				if typed.InputData.Load(packet.InputFlagStopGliding) {
+					pl.StopGliding()
+				}
+
 				// InputFlagHandledTeleport is set by the client after it has
 				// processed a server-sent teleport packet.  The next position
 				// will be at the teleport destination, producing a large

@@ -34,6 +34,7 @@ type playerDetections struct {
 	aim         *DetectionMetadata
 	badPacket   *DetectionMetadata
 	badPacketB  *DetectionMetadata
+	badPacketC  *DetectionMetadata
 	timer       *DetectionMetadata
 }
 
@@ -57,6 +58,7 @@ type Manager struct {
 	aim         *combat.AimCheck
 	badPacket   *pkt.BadPacketCheck
 	badPacketB  *pkt.BadPacketBCheck
+	badPacketC  *pkt.BadPacketCCheck
 	timer       *movement.TimerCheck
 
 	// KickFunc is called when a player should be disconnected.
@@ -80,6 +82,7 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		aim:         combat.NewAimCheck(cfg.Aim),
 		badPacket:   pkt.NewBadPacketCheck(cfg.BadPacket),
 		badPacketB:  pkt.NewBadPacketBCheck(cfg.BadPacketB),
+		badPacketC:  pkt.NewBadPacketCCheck(cfg.BadPacketC),
 		timer:       movement.NewTimerCheck(cfg.Timer),
 	}
 }
@@ -96,6 +99,7 @@ func (m *Manager) newPlayerDetections() *playerDetections {
 		aim:         m.aim.DefaultMetadata(),
 		badPacket:   m.badPacket.DefaultMetadata(),
 		badPacketB:  m.badPacketB.DefaultMetadata(),
+		badPacketC:  m.badPacketC.DefaultMetadata(),
 		timer:       m.timer.DefaultMetadata(),
 	}
 }
@@ -189,6 +193,15 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 	if flagged, info := m.badPacketB.Check(p, pitch); flagged {
 		if det.badPacketB.Fail(int64(tick)) {
 			m.handleViolation(p, m.badPacketB, det.badPacketB, info)
+		}
+	}
+
+	// BadPacket/C: simultaneous Sprint+Sneak — impossible in vanilla.
+	// Input flags are set by SetInputFlags() (called before OnInput from proxy)
+	// so InputSnapshot() already reflects the current tick's flags.
+	if flagged, info := m.badPacketC.Check(p); flagged {
+		if det.badPacketC.Fail(int64(tick)) {
+			m.handleViolation(p, m.badPacketC, det.badPacketC, info)
 		}
 	}
 
@@ -332,10 +345,15 @@ func (m *Manager) OnAttack(attackerID, targetID uuid.UUID, targetRID uint64) {
 	}
 
 	// AutoClicker/A
+	// Pass() is called when CPS is within the allowed limit so that the buffer
+	// decays during legitimate play, preventing false positives from brief
+	// bursts that occurred before the player settled back to a normal rate.
 	if flagged, info := m.autoClicker.Check(p); flagged {
 		if det.autoClicker.Fail(tick) {
 			m.handleViolation(p, m.autoClicker, det.autoClicker, info)
 		}
+	} else {
+		det.autoClicker.Pass(0.5)
 	}
 }
 
