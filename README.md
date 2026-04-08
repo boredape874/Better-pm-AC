@@ -74,7 +74,7 @@ Better-pm-AC/
 
 ### 요구사항
 
-- Go 1.21 이상
+- Go 1.24 이상
 - PMMP 서버 (PocketMine-MP 5.x 권장)
 
 ### 빌드
