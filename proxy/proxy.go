@@ -200,11 +200,14 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 				p.ac.OnSwing(sess.ID)
 			}
 
-		// LevelSoundEvent: secondary swing signal.
-		// SoundEventAttackNoDamage fires on a swing miss; SoundEventAttack fires
-		// on a successful hit. Both indicate a swing animation — KillauraA bots
-		// that suppress packet.Animate would otherwise avoid having the swing
-		// registered on a successful hit.
+		// LevelSoundEvent: secondary swing signal for KillAura/A.
+		// Both sound types indicate the player performed a swing animation and
+		// are used as swing signals so that bots suppressing packet.Animate
+		// cannot evade KillAura/A detection:
+		//   - SoundEventAttackNoDamage: swing missed (no entity hit)
+		//   - SoundEventAttack:         swing connected (entity hit successfully)
+		// Both are intentionally treated as swing events rather than hit events;
+		// the swing registration is what KillAura/A needs to correlate attacks.
 		case *packet.LevelSoundEvent:
 			if typed.SoundType == packet.SoundEventAttackNoDamage ||
 				typed.SoundType == packet.SoundEventAttack {
