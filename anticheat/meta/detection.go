@@ -45,17 +45,25 @@ type DetectionMetadata struct {
 // Fail records a failure for the current simulation tick. Returns true only
 // when a violation is actually recorded (Buffer ≥ FailBuffer). currentTick is
 // the player's SimulationFrame (PlayerAuthInput.Tick).
+//
+// When TrustDuration > 0, the accumulated violation score first decays
+// proportionally to how long ago the player last flagged, then one violation
+// is added.  This mirrors Oomph's trust-decay model: a player who flags after
+// a long clean period starts nearly from scratch rather than continuing to
+// accumulate against an old score.
 func (m *DetectionMetadata) Fail(currentTick int64) bool {
 	m.Buffer = math.Min(m.Buffer+1.0, m.MaxBuffer)
 	if m.Buffer < m.FailBuffer {
 		return false
 	}
-	if m.TrustDuration > 0 {
-		decay := float64(m.TrustDuration) - float64(currentTick-m.LastFlagged)
-		m.Violations += math.Max(0, decay) / float64(m.TrustDuration)
-	} else {
-		m.Violations++
+	if m.TrustDuration > 0 && m.LastFlagged > 0 {
+		elapsed := float64(currentTick - m.LastFlagged)
+		// Decay fraction: 0 = just flagged (no decay), 1 = full TrustDuration
+		// has passed (violations reset to 0 before adding the new one).
+		decayFraction := math.Min(1.0, elapsed/float64(m.TrustDuration))
+		m.Violations = math.Max(0, m.Violations*(1.0-decayFraction))
 	}
+	m.Violations++
 	m.LastFlagged = currentTick
 	return true
 }

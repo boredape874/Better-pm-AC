@@ -133,6 +133,20 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 			onGround := typed.InputData.Load(packet.InputFlagVerticalCollision) &&
 				!typed.InputData.Load(packet.InputFlagJumping)
 
+			// Extract per-tick input state flags that affect check behaviour.
+			sprinting := typed.InputData.Load(packet.InputFlagSprinting)
+			sneaking := typed.InputData.Load(packet.InputFlagSneaking)
+			// InputFlagAutoJumpingInWater is set when the player's auto-jump
+			// is triggered by water, indicating they are submerged. Combined
+			// with the Swimming flags it gives a reliable in-water signal.
+			inWater := typed.InputData.Load(packet.InputFlagAutoJumpingInWater) ||
+				typed.InputData.Load(packet.InputFlagStartSwimming)
+
+			// Apply input state to player data so checks can read it.
+			if pl := p.ac.GetPlayer(sess.ID); pl != nil {
+				pl.SetInputFlags(sprinting, sneaking, inWater)
+			}
+
 			// Pass InputMode so Aim/A can exempt touch/gamepad clients.
 			p.ac.OnInput(sess.ID, typed.Tick, pos, onGround, typed.Yaw, typed.Pitch, typed.InputMode)
 

@@ -111,6 +111,12 @@ func (m *Manager) getPlayer(id uuid.UUID) *data.Player {
 	return m.players[id]
 }
 
+// GetPlayer returns the Player data for the given UUID (thread-safe).
+// Used by the proxy layer to update per-tick input state before running checks.
+func (m *Manager) GetPlayer(id uuid.UUID) *data.Player {
+	return m.getPlayer(id)
+}
+
 func (m *Manager) getDet(id uuid.UUID) *playerDetections {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

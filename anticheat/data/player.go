@@ -65,6 +65,14 @@ type Player struct {
 	// Aim/A is only applicable to mouse clients (Oomph: if InputMode != Mouse { return }).
 	InputMode uint32
 
+	// Input state flags derived from PlayerAuthInput.InputData each tick.
+	// Sprinting and Sneaking affect the expected horizontal speed limits.
+	// InWater indicates the player is swimming / auto-jumping in water, which
+	// exempts them from NoFall checks (water absorbs fall damage).
+	Sprinting bool
+	Sneaking  bool
+	InWater   bool
+
 	// Combat
 	LastSwingTick    uint64
 	ClickTimestamps  []time.Time
@@ -244,6 +252,32 @@ func (p *Player) SetInputMode(mode uint32) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.InputMode = mode
+}
+
+// SetInputFlags stores per-tick boolean state flags derived from
+// PlayerAuthInput.InputData. These are read by movement checks to apply
+// appropriate speed limits and exemptions.
+func (p *Player) SetInputFlags(sprinting, sneaking, inWater bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Sprinting = sprinting
+	p.Sneaking = sneaking
+	p.InWater = inWater
+}
+
+// InputSnapshot returns the current input state flags in a single lock
+// acquisition so checks can read them consistently.
+func (p *Player) InputSnapshot() (sprinting, sneaking, inWater bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.Sprinting, p.Sneaking, p.InWater
+}
+
+// IsOnGround returns whether the player is currently on the ground (thread-safe).
+func (p *Player) IsOnGround() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.OnGround
 }
 
 // GetInputMode returns the latest InputMode (thread-safe).

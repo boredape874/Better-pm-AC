@@ -39,12 +39,20 @@ func (c *NoFallCheck) DefaultMetadata() *meta.DetectionMetadata {
 func (*NoFallCheck) Name() string { return "NoFall/A" }
 
 // Check evaluates the player's fall-landing transition.
+// Players who are (or were recently) swimming are exempt because water absorbs
+// fall damage regardless of fall distance.
 func (c *NoFallCheck) Check(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
 	justLanded, fallDist := p.NoFallSnapshot()
 	if !justLanded || fallDist <= noFallDamageThreshold {
+		return false, ""
+	}
+	// Exempt players who are currently in water — water absorbs fall damage
+	// in vanilla Bedrock Edition regardless of fall distance.
+	_, _, inWater := p.InputSnapshot()
+	if inWater {
 		return false, ""
 	}
 	return true, fmt.Sprintf("fall_dist=%.2f threshold=%.1f", fallDist, noFallDamageThreshold)
