@@ -121,6 +121,13 @@ func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 	if inWater || crawling {
 		return false, ""
 	}
+	// Players touching terrain (ladders, vines, walls) have physics that deviate
+	// from free-fall; exempt to avoid false positives during climbing or wall
+	// sliding. Mirrors Fly/B's terrain-collision exemption: both checks require
+	// reliable simulation before flagging, and terrain contact breaks that.
+	if p.HasTerrainCollision() {
+		return false, ""
+	}
 	// Grace period: skip the entire jump arc before starting to inspect.
 	// Extend the grace period proportionally when JumpBoost is active, since
 	// the effect increases jump height and thus arc duration. Oomph accounts

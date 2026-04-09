@@ -22,12 +22,19 @@ const hoverDeltaThreshold = float32(0.005)
 // a body of water and lands on ground within half a second (~10 ticks at 20 TPS).
 const waterExitGraceTicks = 10
 
-// knockbackGraceTicks is the number of ticks after the server sends a
-// SetActorMotion or MotionPredictionHints packet targeting the player (i.e.
-// the server applies knockback, an explosion, a wind charge, etc.) during which
-// Speed/A and Speed/B do not flag. Knockback can legitimately produce a
-// horizontal velocity spike for several ticks that would otherwise be flagged.
+// knockbackGraceTicks is the minimum number of ticks after the server sends a
+// SetActorMotion or MotionPredictionHints packet targeting the player during
+// which Speed/A, Speed/B, and Velocity/A do not flag. Knockback can legitimately
+// produce a horizontal velocity spike for several ticks that would otherwise be
+// flagged. The actual grace window is extended dynamically based on the player's
+// RTT so that high-latency clients are not falsely flagged before the knockback
+// effect is visible in their position reports (see RecordKnockback).
 const knockbackGraceTicks = 6
+
+// maxKnockbackGraceTicks caps the dynamic grace window regardless of measured
+// RTT. Prevents spoofed or pathologically high latency values from opening an
+// indefinitely large detection window for Velocity/A / Speed checks.
+const maxKnockbackGraceTicks = 20
 
 // noFallBSpeedThreshold is the minimum downward Y displacement (blocks/tick)
 // that triggers GroundFallTicks accumulation. If a player claims OnGround=true
@@ -358,15 +365,26 @@ func (p *Player) UpdatePosition(pos mgl32.Vec3, onGround bool) {
 		// where gravityAccel = 0.08 b/tick² and airDrag = 0.98.
 		// p.LastVelocity is already set to the old Velocity above before we
 		// updated p.Velocity, so p.LastVelocity[1] == previous Y delta.
+		//
+		// Skip the first airborne tick (AirTicks == 1): LastVelocity[1] reflects
+		// the grounded Y delta (≈ 0), not an in-air velocity. Predicting the next
+		// Y from a near-zero base would produce a strongly negative expected value
+		// while the actual jump velocity is positive (~0.42 b/tick), causing a
+		// guaranteed spurious violation. Oomph defers gravity tracking until the
+		// second airborne tick when prevYDelta is a real airborne measurement.
 		const gravityAccel = float32(0.08)
 		const airDrag = float32(0.98)
 		const gravViolTolerance = float32(0.03) // allow 0.03 b/tick rounding error
-		prevYDelta := p.LastVelocity[1]
-		predictedY := (prevYDelta - gravityAccel) * airDrag
-		if dy > predictedY+gravViolTolerance {
-			p.GravViolTicks++
-		} else {
+		if p.AirTicks == 1 {
 			p.GravViolTicks = 0
+		} else {
+			prevYDelta := p.LastVelocity[1]
+			predictedY := (prevYDelta - gravityAccel) * airDrag
+			if dy > predictedY+gravViolTolerance {
+				p.GravViolTicks++
+			} else {
+				p.GravViolTicks = 0
+			}
 		}
 
 		// Fall distance tracking: use a bool flag instead of FallStartY == 0
@@ -608,14 +626,32 @@ func (p *Player) StopGliding() {
 // sends a SetActorMotion or MotionPredictionHints packet targeting the player's
 // own entity runtime ID, indicating the server has applied an external velocity
 // (knockback from damage, explosion, wind charge, etc.).
-// Speed/A and Speed/B will not flag for knockbackGraceTicks ticks after this.
+// Speed/A and Speed/B will not flag for the grace window after this.
 // vel is the full 3-D velocity from the packet; only the XZ components are
 // stored because the Y component is absorbed by gravity within one tick and
 // is not a reliable indicator of Anti-KB behaviour.
+//
+// The grace window is dynamic: the SetActorMotion packet is recorded by the
+// proxy at forwarding time, but the client only receives it after ~RTT/2, then
+// applies the velocity, and the resulting position change arrives back at the
+// proxy after another ~RTT/2.  Total propagation ≈ RTT + 1 tick.  A fixed
+// 6-tick window is therefore too short for players with RTT > ~250 ms, causing
+// Velocity/A to fire before the knockback effect is even visible in the position
+// stream.  We extend the window to max(knockbackGraceTicks, RTT_in_ticks + 1),
+// capped at maxKnockbackGraceTicks to prevent abuse via spoofed latency.
 func (p *Player) RecordKnockback(vel mgl32.Vec3) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.knockbackGrace = knockbackGraceTicks
+	// Dynamic grace: RTT in ticks + 1 tick for the client to apply + process.
+	pingGrace := int(p.latency.Seconds()*20.0) + 1
+	grace := knockbackGraceTicks
+	if pingGrace > grace {
+		grace = pingGrace
+	}
+	if grace > maxKnockbackGraceTicks {
+		grace = maxKnockbackGraceTicks
+	}
+	p.knockbackGrace = grace
 	p.pendingKnockback = mgl32.Vec2{vel[0], vel[2]}
 }
 
