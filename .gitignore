@@ -1,0 +1,12 @@
+# Binaries
+better-pm-ac
+better-pm-ac.exe
+
+# Config (may contain local overrides)
+config.toml
+
+# Go build cache
+/vendor/
+
+# macOS
+.DS_Store
