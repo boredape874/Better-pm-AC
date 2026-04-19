@@ -25,6 +25,7 @@ func (*BadPacketCheck) Type() string        { return "BadPacket" }
 func (*BadPacketCheck) SubType() string     { return "A" }
 func (*BadPacketCheck) Description() string { return "Checks if a player's simulation frame is valid." }
 func (*BadPacketCheck) Punishable() bool    { return true }
+func (*BadPacketCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *BadPacketCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

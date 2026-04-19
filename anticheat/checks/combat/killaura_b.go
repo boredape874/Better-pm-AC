@@ -63,6 +63,7 @@ func (*KillAuraBCheck) Description() string {
 	return "Detects attacking entities outside the player's field of view."
 }
 func (*KillAuraBCheck) Punishable() bool { return true }
+func (*KillAuraBCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *KillAuraBCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

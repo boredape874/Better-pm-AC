@@ -18,6 +18,11 @@ type Detection interface {
 	Punishable() bool
 	// DefaultMetadata returns the initial DetectionMetadata for a new player.
 	DefaultMetadata() *DetectionMetadata
+	// Policy is the enforcement action applied by MitigateDispatcher when this
+	// check flags. Kick ends the session at MaxViolations; ClientRubberband
+	// teleports the client back; ServerFilter drops/rewrites the packet; None
+	// logs only. See MitigatePolicy constants.
+	Policy() MitigatePolicy
 }
 
 // DetectionMetadata tracks the violation state for one Detection applied to

@@ -36,6 +36,7 @@ func (*AutoClickerBCheck) Description() string {
 	return "Checks for unnaturally consistent click intervals (autoclicker precision)."
 }
 func (*AutoClickerBCheck) Punishable() bool { return true }
+func (*AutoClickerBCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *AutoClickerBCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

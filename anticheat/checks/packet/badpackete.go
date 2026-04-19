@@ -41,6 +41,7 @@ func (*BadPacketECheck) Description() string {
 	return "Detects contradictory start+stop input flags in the same PlayerAuthInput packet."
 }
 func (*BadPacketECheck) Punishable() bool { return true }
+func (*BadPacketECheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *BadPacketECheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

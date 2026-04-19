@@ -29,6 +29,7 @@ func (*BadPacketCCheck) Description() string {
 	return "Detects simultaneous Sprinting+Sneaking flags, impossible in vanilla."
 }
 func (*BadPacketCCheck) Punishable() bool { return true }
+func (*BadPacketCCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *BadPacketCCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

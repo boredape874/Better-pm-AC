@@ -26,6 +26,7 @@ func (*AutoClickerCheck) Description() string {
 	return "Checks if the player is clicking above the configured CPS limit."
 }
 func (*AutoClickerCheck) Punishable() bool { return true }
+func (*AutoClickerCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *AutoClickerCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

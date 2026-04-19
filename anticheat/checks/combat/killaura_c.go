@@ -33,6 +33,7 @@ func (*KillAuraCCheck) Description() string {
 	return "Detects attacking multiple entities within the same simulation tick."
 }
 func (*KillAuraCCheck) Punishable() bool { return true }
+func (*KillAuraCCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *KillAuraCCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

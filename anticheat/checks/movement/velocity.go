@@ -68,6 +68,7 @@ func (*VelocityCheck) Description() string {
 	return "Detects Anti-KB cheats that suppress server-applied horizontal velocity."
 }
 func (*VelocityCheck) Punishable() bool { return true }
+func (*VelocityCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *VelocityCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

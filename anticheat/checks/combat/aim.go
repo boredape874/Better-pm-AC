@@ -32,6 +32,7 @@ func (*AimCheck) Description() string {
 	return "Checks for unnaturally round yaw rotation deltas (mouse clients only)."
 }
 func (*AimCheck) Punishable() bool { return true }
+func (*AimCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *AimCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

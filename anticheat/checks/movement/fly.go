@@ -58,6 +58,7 @@ func (*FlyCheck) Description() string {
 	return "Detects hovering via sustained near-zero Y delta while airborne."
 }
 func (*FlyCheck) Punishable() bool { return true }
+func (*FlyCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *FlyCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

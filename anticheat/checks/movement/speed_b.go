@@ -50,6 +50,7 @@ func (*SpeedBCheck) Description() string {
 	return "Detects excessive horizontal speed while airborne (blocks/tick)."
 }
 func (*SpeedBCheck) Punishable() bool { return true }
+func (*SpeedBCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *SpeedBCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

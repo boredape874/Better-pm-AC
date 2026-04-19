@@ -50,6 +50,7 @@ func (*PhaseACheck) Description() string {
 	return "Detects impossible position jumps in a single tick without a teleport."
 }
 func (*PhaseACheck) Punishable() bool { return true }
+func (*PhaseACheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *PhaseACheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

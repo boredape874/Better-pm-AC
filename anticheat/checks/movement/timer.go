@@ -33,6 +33,7 @@ func (*TimerCheck) Description() string {
 	return "Detects PlayerAuthInput arriving faster than the configured rate (packets/s)."
 }
 func (*TimerCheck) Punishable() bool { return true }
+func (*TimerCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *TimerCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

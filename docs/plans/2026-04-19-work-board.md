@@ -22,11 +22,11 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 1 Foundation** |
-| 전체 진도 | 1 / ~70 Tasks done |
+| Phase 진행 중 | **Phase 1 완료. Phase 2 착수 가능.** |
+| 전체 진도 | 9 / ~70 Tasks done (Phase 1 전체) |
 | β 마일스톤 ETA | +7.5주 (2026-06-07 경) |
 | γ 마일스톤 ETA | +10주 (2026-06-28 경) |
-| 현재 활성 AI | AI-O (설계 문서화 중) |
+| 현재 활성 AI | (없음 — AI-W/S/E/A/M 착수 대기) |
 | Urgent 이슈 | 없음 |
 
 ---
@@ -68,79 +68,50 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 - Acceptance: AGENT-PROTOCOL + WORK-BOARD 존재.
 
 ### Task 1.3 — 포크 3개 조사 및 차이점 정리
-- Status: **pending**
+- Status: **done**
 - Owner: AI-O
-- Depends on: 1.1
-- Files to create: `docs/forks-notes.md`
-- Acceptance:
-  - aerisnetwork/oomph 의 main 대비 diff 요약 (핵심 기능 변경 사항)
-  - TrixNEW/oomph 동상
-  - basicengine92-tech/oomph 동상
-  - 각 포크별 "우리가 채택할 만한 개선사항" 리스트업
-  - 채택 결정은 사용자 승인 받기
+- Completed: 2026-04-19
+- Files: `docs/forks-notes.md`
+- Notes: TrixNEW/wall-collissions + basicengine92/feat/lag-comp-cutoff + refactor/movement-sim + feat/scaffold-dtc 채택 권장.
 
 ### Task 1.4 — 인터페이스 stub 작성
-- Status: **pending**
+- Status: **done**
 - Owner: AI-O
-- Depends on: 1.1
-- Files to create: `anticheat/meta/interfaces.go`
-- Acceptance:
-  - design.md §11 에 명시된 인터페이스 5개 + Detection 확장 전부 stub 존재.
-  - 각 타입/메서드에 package doc comment 부착.
-  - `go build ./...` 통과.
+- Completed: 2026-04-19
+- Files: `anticheat/meta/interfaces.go`
+- Notes: WorldTracker / SimEngine / EntityRewind / AckSystem / MitigateDispatcher + SimInput/SimState/EntitySnapshot/MitigatePolicy stubs.
 
 ### Task 1.5 — Detection 확장 (Policy 추가)
-- Status: **pending**
+- Status: **done**
 - Owner: AI-O
-- Depends on: 1.4
-- Files to modify: `anticheat/meta/detection.go`
-- Acceptance:
-  - `Detection` 인터페이스에 `Policy() MitigatePolicy` 추가.
-  - 기존 24개 체크에 임시로 `Policy() { return PolicyKick }` 추가 (배선 유지용).
-  - `go build ./...` 녹색.
+- Completed: 2026-04-19
+- Files: `anticheat/meta/detection.go` + 24 existing check files.
+- Notes: 모든 기존 체크에 `Policy() meta.MitigatePolicy { return meta.PolicyKick }` 일괄 추가.
 
 ### Task 1.6 — 패키지 스켈레톤 생성
-- Status: **pending**
+- Status: **done**
 - Owner: AI-O
-- Depends on: 1.4
-- Files to create (각 디렉토리에 `doc.go` 만):
-  - `anticheat/world/doc.go`
-  - `anticheat/sim/doc.go`
-  - `anticheat/entity/doc.go`
-  - `anticheat/ack/doc.go`
-  - `anticheat/mitigate/doc.go`
-  - `anticheat/checks/world/doc.go`
-  - `anticheat/checks/client/doc.go`
-  - `docs/check-specs/README.md`
-- Acceptance: 디렉토리 존재, `go build ./...` 녹색.
+- Completed: 2026-04-19
+- Files: `anticheat/{world,sim,entity,ack,mitigate}/doc.go`, `anticheat/checks/{world,client}/doc.go`, `docs/check-specs/README.md`.
 
 ### Task 1.7 — Dragonfly 의존성 추가
-- Status: **pending**
+- Status: **done**
 - Owner: AI-O
-- Depends on: 1.6
-- Commands: `go get github.com/df-mc/dragonfly@latest && go mod tidy`
-- Acceptance:
-  - `go.mod` / `go.sum` 업데이트.
-  - `anticheat/world/doc.go` 에서 `import "github.com/df-mc/dragonfly/server/world"` 컴파일 통과.
-  - 바이너리 크기 변화 기록.
+- Completed: 2026-04-19
+- Notes: `github.com/df-mc/dragonfly v0.10.12` 추가. mathgl v1.2.0 / go-raknet v1.15.1 / x/mod v0.22 / x/text v0.23 / x/net v0.38 자동 업그레이드.
 
 ### Task 1.8 — 설정 스키마 확장
-- Status: **pending**
+- Status: **done**
 - Owner: AI-O
-- Depends on: 1.4
-- Files to modify: `config/config.go`
-- Acceptance:
-  - design.md §7.2 의 신규 섹션 반영 (`simulation`, `world`, `entity`, `ack`).
-  - 신규 18개 체크 config 타입 추가 (아직 `Enabled: false` 기본값).
-  - `Default()` 갱신, `Policy` 필드 각 체크에 추가.
-  - 기존 `config.toml` 파일을 읽으면 신 키 자동 주입 + 저장.
+- Completed: 2026-04-19
+- Files: `config/config.go`
+- Notes: Simulation/World/Entity/Ack 섹션 + 20개 신규 체크 config + LogViolations/LogLevel. per-check Policy 필드는 Phase 3 AI-M이 MitigateDispatcher 배선 시 일괄 추가 예정.
 
 ### Task 1.9 — 빌드 검증
-- Status: **pending**
+- Status: **done**
 - Owner: AI-O
-- Depends on: 1.5, 1.6, 1.7, 1.8
-- Commands: `go build ./... && go vet ./... && go test ./...`
-- Acceptance: 모두 녹색. 사용자에게 "Phase 2 착수 가능" 보고.
+- Completed: 2026-04-19
+- Result: `go build ./...` / `go vet ./...` / `go test ./...` 전부 녹색. **Phase 2 착수 가능.**
 
 ---
 

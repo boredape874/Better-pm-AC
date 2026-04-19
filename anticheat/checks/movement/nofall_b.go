@@ -42,6 +42,7 @@ func (*NoFallBCheck) Description() string {
 	return "Detects persistent OnGround=true while Y position is falling (OnGround spoof)."
 }
 func (*NoFallBCheck) Punishable() bool { return true }
+func (*NoFallBCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
 
 func (c *NoFallBCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{
