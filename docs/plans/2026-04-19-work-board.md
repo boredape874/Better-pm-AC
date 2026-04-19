@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 2 진행 중** (Entity/Ack/Mitigate 기본 완료. World/Sim 남음) |
-| 전체 진도 | 16 / ~75 Tasks done (Phase 1 전체 + 2.E.1–2, 2.A.1–2, 2.M.1–2) |
+| Phase 진행 중 | **Phase 2 진행 중** (Entity/Ack/Mitigate/Sim 완료. World + 통합 배선 남음) |
+| 전체 진도 | 28 / ~75 Tasks done (Phase 1 전체 + 2.E.1–2, 2.A.1–2, 2.M.1–2, 2.S.0–11) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
@@ -206,7 +206,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ## Phase 2 / AI-S — Simulation Engine (β)
 
 ### Task 2.S.0 — 물리 상수 검증
-- Status: **pending**
+- Status: **done**
 - Owner: AI-S
 - Depends on: 1.10
 - Files: `docs/physics-constants.md`
@@ -217,21 +217,21 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 - **2.S.2 이후 모든 sim Task의 전제.**
 
 ### Task 2.S.1 — SimState · SimInput 정의
-- Status: **pending**
+- Status: **done**
 - Owner: AI-S
 - Depends on: 2.S.0
 - Files: `anticheat/sim/state.go`
 - Acceptance: design.md §5.2.1 구조체 정의, 초기화 헬퍼.
 
 ### Task 2.S.2 — Engine 골격
-- Status: **pending**
+- Status: **done**
 - Owner: AI-S
 - Depends on: 2.S.1
 - Files: `anticheat/sim/engine.go`
 - Acceptance: `engine` struct + `Step(prev, input, world)` stub + `meta.SimEngine` 만족.
 
 ### Task 2.S.3 — 수평 입력 적용 (WASD)
-- Status: **pending**
+- Status: **done**
 - Owner: AI-S
 - Depends on: 2.S.2
 - Files: `anticheat/sim/walk.go`
@@ -241,7 +241,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - 단위 테스트 (각 상태별 기대 속도).
 
 ### Task 2.S.4 — 점프
-- Status: **pending**
+- Status: **done**
 - Owner: AI-S
 - Depends on: 2.S.3
 - Files: `anticheat/sim/jump.go`
@@ -251,7 +251,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - 스프린트 점프 시 수평 부스트.
 
 ### Task 2.S.5 — 중력 · 공기 저항
-- Status: **pending**
+- Status: **done**
 - Owner: AI-S
 - Depends on: 2.S.2
 - Files: `anticheat/sim/gravity.go`
@@ -261,7 +261,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - 단위 테스트 (10 tick 낙하 궤적).
 
 ### Task 2.S.6 — 블록 충돌 (sweep)
-- Status: **pending**
+- Status: **done**
 - Owner: AI-S
 - Depends on: 2.S.5, 2.W.5
 - Files: `anticheat/sim/collision.go`
@@ -271,7 +271,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - 테스트: 블록 통과·벽 막힘·계단 오르기.
 
 ### Task 2.S.7 — 표면별 마찰
-- Status: **pending**
+- Status: **done**
 - Owner: AI-S
 - Depends on: 2.S.6
 - Files: `anticheat/sim/friction.go`
@@ -280,7 +280,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - 발밑 블록 확인 후 승수 적용.
 
 ### Task 2.S.8 — 유체
-- Status: **pending**
+- Status: **done**
 - Owner: AI-S
 - Depends on: 2.S.5
 - Files: `anticheat/sim/fluid.go`
@@ -289,7 +289,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - 수영 모드 입력 처리.
 
 ### Task 2.S.9 — 기어오르기 블록
-- Status: **pending**
+- Status: **done**
 - Owner: AI-S
 - Depends on: 2.S.5
 - Files: `anticheat/sim/climbable.go`
@@ -298,7 +298,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - Sneak 시 클라이밍 정지 (비-스캐폴딩).
 
 ### Task 2.S.10 — 포션 효과
-- Status: **pending**
+- Status: **done**
 - Owner: AI-S
 - Depends on: 2.S.3, 2.S.5
 - Files: `anticheat/sim/effects.go`
@@ -307,7 +307,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - 효과 amplifier에 선형 비례.
 
 ### Task 2.S.11 — β 통합 테스트
-- Status: **pending**
+- Status: **done**
 - Owner: AI-S
 - Depends on: 2.S.3~2.S.10
 - Files: `anticheat/sim/engine_test.go`
