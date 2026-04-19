@@ -22,11 +22,11 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 1 완료. Phase 2 착수 가능.** |
-| 전체 진도 | 9 / ~75 Tasks done (Phase 1 전체) |
+| Phase 진행 중 | **Phase 2 진행 중** (Entity/Ack/Mitigate 기본 완료. World/Sim 남음) |
+| 전체 진도 | 16 / ~75 Tasks done (Phase 1 전체 + 2.E.1–2, 2.A.1–2, 2.M.1–2) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
-| 현재 활성 AI | (없음 — AI-W/S/E/A/M 착수 대기) |
+| 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
 | Urgent 이슈 | 없음 |
 
 ---
@@ -114,16 +114,12 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 - Result: `go build ./...` / `go vet ./...` / `go test ./...` 전부 녹색.
 
 ### Task 1.10 — Per-check Policy 필드 배선
-- Status: **pending**
+- Status: **done**
 - Owner: AI-O
-- Depends on: 1.8
-- Files: `config/config.go`, `anticheat/checks/**/*.go`, `anticheat/meta/detection.go`
-- Acceptance:
-  - 모든 44개 체크 config에 `Policy string \`toml:"policy"\`` 추가.
-  - `Default()` 가 design.md §6.2 Policy 컬럼대로 기본값 설정 (대부분 `"kick"`, Speed/Fly/Phase/Step/HighJump/Jesus/Spider = `"server_filter"`, NoFall/B = `"client_rubberband"`).
-  - 각 체크 Go 구현의 `Policy()` 는 config 값을 파싱해 반환 (기본값 PolicyKick 유지 가능한 헬퍼 `config.ParsePolicy(s)` 추가).
-  - `go build ./... && go vet ./...` 녹색.
-- **이게 Phase 2 착수 전 반드시 완료해야 함. AI-W/S/E/A/M은 1.10 done 확인 후 시작.**
+- Completed: 2026-04-20
+- Commits: 141afef
+- Files: `config/config.go`, `anticheat/checks/**/*.go`, `anticheat/meta/interfaces.go`
+- Notes: 44개 체크 config에 `Policy string` + 기본값, `meta.ParsePolicy` 헬퍼, 24개 기존 체크 `Policy()` 를 `c.cfg.Policy` 파싱으로 변경. build/vet/test 녹색.
 
 ---
 
@@ -322,7 +318,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ## Phase 2 / AI-E — Entity Rewind
 
 ### Task 2.E.1 — 링버퍼 구현
-- Status: **pending**
+- Status: **done**
 - Owner: AI-E
 - Depends on: 1.10
 - Files: `anticheat/entity/ringbuffer.go`
@@ -331,7 +327,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - 단위 테스트 (push, overflow, query).
 
 ### Task 2.E.2 — Rewind 시스템
-- Status: **pending**
+- Status: **done**
 - Owner: AI-E
 - Depends on: 2.E.1
 - Files: `anticheat/entity/rewind.go`
@@ -353,7 +349,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ## Phase 2 / AI-A — Ack System
 
 ### Task 2.A.1 — Marker 구조
-- Status: **pending**
+- Status: **done**
 - Owner: AI-A
 - Depends on: 1.10
 - Files: `anticheat/ack/marker.go`
@@ -362,7 +358,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - timestamp 할당 정책 (monotonic int64).
 
 ### Task 2.A.2 — System 구현
-- Status: **pending**
+- Status: **done**
 - Owner: AI-A
 - Depends on: 2.A.1
 - Files: `anticheat/ack/system.go`
@@ -384,14 +380,14 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ## Phase 2 / AI-M — Mitigate
 
 ### Task 2.M.1 — Policy enum + Dispatcher 인터페이스 구현
-- Status: **pending**
+- Status: **done**
 - Owner: AI-M
 - Depends on: 1.10
 - Files: `anticheat/mitigate/policy.go`
 - Acceptance: `dispatcher` struct + `Apply()` 메서드 stub 형태로 컴파일.
 
 ### Task 2.M.2 — Kick 경로
-- Status: **pending**
+- Status: **done**
 - Owner: AI-M
 - Depends on: 2.M.1
 - Files: `anticheat/mitigate/policy.go`
