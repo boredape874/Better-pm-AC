@@ -23,9 +23,9 @@
 | 항목 | 값 |
 |------|-----|
 | Phase 진행 중 | **Phase 1 완료. Phase 2 착수 가능.** |
-| 전체 진도 | 9 / ~70 Tasks done (Phase 1 전체) |
-| β 마일스톤 ETA | +7.5주 (2026-06-07 경) |
-| γ 마일스톤 ETA | +10주 (2026-06-28 경) |
+| 전체 진도 | 9 / ~75 Tasks done (Phase 1 전체) |
+| β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
+| γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | (없음 — AI-W/S/E/A/M 착수 대기) |
 | Urgent 이슈 | 없음 |
 
@@ -105,13 +105,25 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 - Owner: AI-O
 - Completed: 2026-04-19
 - Files: `config/config.go`
-- Notes: Simulation/World/Entity/Ack 섹션 + 20개 신규 체크 config + LogViolations/LogLevel. per-check Policy 필드는 Phase 3 AI-M이 MitigateDispatcher 배선 시 일괄 추가 예정.
+- Notes: Simulation/World/Entity/Ack 섹션 + 20개 신규 체크 config + LogViolations/LogLevel. Per-check `Policy` 필드는 Task 1.10에서 일괄 추가.
 
 ### Task 1.9 — 빌드 검증
 - Status: **done**
 - Owner: AI-O
 - Completed: 2026-04-19
-- Result: `go build ./...` / `go vet ./...` / `go test ./...` 전부 녹색. **Phase 2 착수 가능.**
+- Result: `go build ./...` / `go vet ./...` / `go test ./...` 전부 녹색.
+
+### Task 1.10 — Per-check Policy 필드 배선
+- Status: **pending**
+- Owner: AI-O
+- Depends on: 1.8
+- Files: `config/config.go`, `anticheat/checks/**/*.go`, `anticheat/meta/detection.go`
+- Acceptance:
+  - 모든 44개 체크 config에 `Policy string \`toml:"policy"\`` 추가.
+  - `Default()` 가 design.md §6.2 Policy 컬럼대로 기본값 설정 (대부분 `"kick"`, Speed/Fly/Phase/Step/HighJump/Jesus/Spider = `"server_filter"`, NoFall/B = `"client_rubberband"`).
+  - 각 체크 Go 구현의 `Policy()` 는 config 값을 파싱해 반환 (기본값 PolicyKick 유지 가능한 헬퍼 `config.ParsePolicy(s)` 추가).
+  - `go build ./... && go vet ./...` 녹색.
+- **이게 Phase 2 착수 전 반드시 완료해야 함. AI-W/S/E/A/M은 1.10 done 확인 후 시작.**
 
 ---
 
@@ -121,10 +133,21 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 
 ## Phase 2 / AI-W — World Tracker
 
+### Task 2.W.0 — testdata 캡처 계획
+- Status: **pending**
+- Owner: AI-W
+- Depends on: 1.10
+- Files: `testdata/README.md`, `testdata/level_chunk_overworld.bin`, `testdata/subchunk.bin`
+- Acceptance:
+  - 실제 Bedrock 세션에서 `packet.LevelChunk` / `packet.SubChunk` / `packet.UpdateBlock` 각 1개 이상 캡처 후 저장.
+  - 캡처 방법 README에 기록 (예: `proxy.go`에 임시 dump hook). 제3자 AI가 재현 가능하게.
+  - 실패 시 Blocker 표시, AI-O에 에스컬레이트.
+- **2.W.2 이후 모든 Task가 이 파일에 의존함.**
+
 ### Task 2.W.1 — Tracker 구조체 + 생성자
 - Status: **pending**
 - Owner: AI-W
-- Depends on: 1.9
+- Depends on: 1.10
 - Files: `anticheat/world/tracker.go`
 - Acceptance:
   - `tracker` struct + `NewTracker(log *slog.Logger) *tracker` + `meta.WorldTracker` 인터페이스 만족.
@@ -186,10 +209,21 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 
 ## Phase 2 / AI-S — Simulation Engine (β)
 
+### Task 2.S.0 — 물리 상수 검증
+- Status: **pending**
+- Owner: AI-S
+- Depends on: 1.10
+- Files: `docs/physics-constants.md`
+- Acceptance:
+  - 설계 §5.2에 정의된 상수 (gravity 0.08, airDrag 0.98, jumpVel 0.42, stepHeight 0.6, friction, item-use speed 등) 각각을 **Oomph 실소스** (`oomph-ac/oomph` master)와 **Dragonfly 플레이어 엔티티 소스**에서 대조.
+  - 불일치 시 표에 정리하고 사용자 승인 요청.
+  - `basicengine92-tech:refactor/movement-sim` 브랜치도 참조.
+- **2.S.2 이후 모든 sim Task의 전제.**
+
 ### Task 2.S.1 — SimState · SimInput 정의
 - Status: **pending**
 - Owner: AI-S
-- Depends on: 1.9
+- Depends on: 2.S.0
 - Files: `anticheat/sim/state.go`
 - Acceptance: design.md §5.2.1 구조체 정의, 초기화 헬퍼.
 
@@ -290,7 +324,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ### Task 2.E.1 — 링버퍼 구현
 - Status: **pending**
 - Owner: AI-E
-- Depends on: 1.9
+- Depends on: 1.10
 - Files: `anticheat/entity/ringbuffer.go`
 - Acceptance:
   - generic ring buffer (or entity-snapshot-specific).
@@ -321,7 +355,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ### Task 2.A.1 — Marker 구조
 - Status: **pending**
 - Owner: AI-A
-- Depends on: 1.9
+- Depends on: 1.10
 - Files: `anticheat/ack/marker.go`
 - Acceptance:
   - `NetworkStackLatency` 패킷 생성 헬퍼.
@@ -352,7 +386,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ### Task 2.M.1 — Policy enum + Dispatcher 인터페이스 구현
 - Status: **pending**
 - Owner: AI-M
-- Depends on: 1.9
+- Depends on: 1.10
 - Files: `anticheat/mitigate/policy.go`
 - Acceptance: `dispatcher` struct + `Apply()` 메서드 stub 형태로 컴파일.
 
@@ -414,7 +448,7 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ### Task 3.C1.12 — Spider/A 신규
 - Status: **pending** · Depends on: 2.S.6, 2.S.9
 ### Task 3.C1.13 — InvalidMove/A 신규
-- Status: **pending** · Depends on: 1.9
+- Status: **pending** · Depends on: 1.10
 ### Task 3.C1.14 — NoSlow/A 개조
 - Status: **pending** · Depends on: 2.S.11
 ### Task 3.C1.15 — Velocity/A 개조
@@ -460,8 +494,18 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 
 ## Phase 3 / AI-C-4 — World 체크 (신규 카테고리)
 
+### Task 3.C4.0 — `feat/scaffold-dtc` 딥다이브
+- Status: **pending**
+- Owner: AI-C-4
+- Depends on: 1.10
+- Files: `docs/check-specs/world-scaffold-a.md`
+- Acceptance:
+  - `basicengine92-tech/oomph` 의 `feat/scaffold-dtc` 브랜치 36개 커밋 전수 조사.
+  - 알고리즘 요약, 채택할 idea와 거르는 idea 구분, 오탐 방지 장치.
+  - 이 문서 없이는 3.C4.1 시작 금지.
+
 ### Task 3.C4.1 — Scaffold/A 개조
-- Status: **pending** · Depends on: 2.W.5
+- Status: **pending** · Depends on: 2.W.5, 3.C4.0
 ### Task 3.C4.2 — Nuker/A 신규 (다중 블록)
 - Status: **pending** · Depends on: 2.W.5
 ### Task 3.C4.3 — Nuker/B 신규 (범위)
@@ -510,42 +554,65 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 
 ---
 
-# Phase 5 — Integration + Release (순차 · AI-O)
+# Phase 5a — Integration (순차 · AI-O)
 
-### Task 5.1 — Manager 배선
+### Task 5a.1 — Manager 배선
 - Status: **pending**
 - Owner: AI-O
 - Depends on: Phase 2 · Phase 3 Movement/Combat/Packet 완료
 - Files: `anticheat/anticheat.go`
 - Acceptance: world/sim/entity/ack/mitigate 전부 Manager에서 생성·주입·호출.
 
-### Task 5.2 — proxy 통합
+### Task 5a.2 — proxy 통합
 - Status: **pending**
-- Depends on: 5.1, 2.W.7, 2.A.3
+- Depends on: 5a.1, 2.W.7, 2.A.3
 - Files: `proxy/proxy.go`
 - Acceptance: 모든 패킷 훅 배선, correction 발송 경로 동작.
 
-### Task 5.3 — 통합 테스트
+### Task 5a.3 — 통합 테스트
 - Status: **pending**
-- Depends on: 5.2
+- Depends on: 5a.2
 - Files: `anticheat/integration_test.go`, `testdata/sessions/*`
 - Acceptance:
   - 합법 플레이어 녹화 5세션 → 0 violation.
   - 치트 시뮬 녹화 5세션 (Speed/Fly/Reach/Scaffold/Nuker) → 각 해당 체크 flagged.
 
-### Task 5.4 — 성능 프로파일링
+### Task 5a.4 — 성능 프로파일링 & 벤치
 - Status: **pending**
-- Depends on: 5.3
-- Acceptance: §1.4 목표 달성 (동접 100 · tick p99 < 2ms · 메모리 < 4GB).
+- Depends on: 5a.3
+- Files: `bench/loadtest.go`
+- Acceptance:
+  - design.md §14.3 벤치 3종 (100 CCU / 치트 분류 / 1시간 leak) 모두 통과.
+  - p99 tick < 20ms, 메모리 p95 < 2GB RSS.
 
-### Task 5.5 — β 릴리스
+# Phase 5b — Release (순차 · AI-O)
+
+### Task 5b.1 — CI / GitHub Actions
 - Status: **pending**
-- Depends on: 5.4
+- Depends on: 5a.4
+- Files: `.github/workflows/ci.yml`
+- Acceptance:
+  - push / PR에서 `go build ./... && go vet ./... && go test -race ./...` 실행.
+  - Linux + Windows 매트릭스.
+  - 벤치 스모크 1종 nightly.
+
+### Task 5b.2 — 메트릭 & 구조화 로그
+- Status: **pending**
+- Depends on: 5a.1
+- Files: `anticheat/mitigate/metrics.go`, `docs/ops-runbook.md`
+- Acceptance:
+  - design.md §13 메트릭 6종 전부 노출.
+  - `/metrics` HTTP 엔드포인트 (옵션 플래그).
+  - 운영 매뉴얼 작성 (flag 포맷, 메트릭 의미, 대시보드 JSON 샘플).
+
+### Task 5b.3 — β 릴리스
+- Status: **pending**
+- Depends on: 5a.4, 5b.1
 - Acceptance: γ 기능 disabled, 태그 `v0.10.0-beta` 생성, CHANGELOG 작성.
 
-### Task 5.6 — γ 릴리스
+### Task 5b.4 — γ 릴리스
 - Status: **pending**
-- Depends on: 5.5, Phase 4 전체
+- Depends on: 5b.3, Phase 4 전체
 - Acceptance: γ 기능 enabled, 태그 `v0.10.0` 생성.
 
 ---

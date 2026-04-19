@@ -28,7 +28,7 @@ func (*BadPacketBCheck) Description() string {
 	return "Checks that PlayerAuthInput pitch is within the valid [-90, 90] range."
 }
 func (*BadPacketBCheck) Punishable() bool { return true }
-func (*BadPacketBCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
+func (c *BadPacketBCheck) Policy() meta.MitigatePolicy { return meta.ParsePolicy(c.cfg.Policy) }
 
 func (c *BadPacketBCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

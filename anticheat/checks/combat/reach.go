@@ -38,7 +38,7 @@ func (*ReachCheck) Type() string        { return "Reach" }
 func (*ReachCheck) SubType() string     { return "A" }
 func (*ReachCheck) Description() string { return "Checks if combat reach exceeds the vanilla value." }
 func (*ReachCheck) Punishable() bool    { return true }
-func (*ReachCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
+func (c *ReachCheck) Policy() meta.MitigatePolicy { return meta.ParsePolicy(c.cfg.Policy) }
 
 func (c *ReachCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

@@ -10,7 +10,7 @@
 
 이 저장소에 들어온 AI가 **첫 메시지에서 반드시 해야 할 것**:
 
-1. `docs/plans/2026-04-19-anticheat-overhaul-design.md` 전체 읽기 (§0~§12).
+1. `docs/plans/2026-04-19-anticheat-overhaul-design.md` 전체 읽기 (§0~§14).
 2. 이 문서(`AGENT-PROTOCOL.md`) 전체 읽기.
 3. `docs/plans/2026-04-19-work-board.md` 열기 → 본인 역할 섹션에서 `pending` Task 찾기.
 4. Task가 있으면 **Claim 절차(§3)** 수행.
@@ -27,13 +27,13 @@
 
 | 역할 | 이름 | 담당 패키지 | 주요 Task |
 |------|------|------------|----------|
-| **AI-O** | Orchestrator | `anticheat/meta/`, `anticheat/anticheat.go`, `proxy/`, `config/`, `main.go`, `docs/` | 인터페이스 관리, Phase 1·5 전체, 통합, Proposal 승인 |
+| **AI-O** | Orchestrator | `anticheat/meta/`, `anticheat/anticheat.go`, `proxy/`, `config/`, `main.go`, `docs/` | 인터페이스 관리, Phase 1·5a·5b 전체, 통합, Proposal 승인 |
 | **AI-W** | World | `anticheat/world/**` | 청크 파서, 블록 lookup, BBox |
 | **AI-S** | Simulation | `anticheat/sim/**` | 물리 엔진 (β + γ) |
 | **AI-E** | Entity | `anticheat/entity/**` | Rewind 링버퍼 |
 | **AI-A** | Ack | `anticheat/ack/**` | NetworkStackLatency 마커 |
 | **AI-M** | Mitigate | `anticheat/mitigate/**` | Correction policy 실행 |
-| **AI-C** | Check | `anticheat/checks/**`, `docs/check-specs/` | 42개 체크 구현/개조 |
+| **AI-C** | Check | `anticheat/checks/**`, `docs/check-specs/` | 44개 체크 구현/개조 |
 
 **AI-C는 추가로 서브 분화 가능**: AI-C-1 (movement), AI-C-2 (combat), AI-C-3 (packet), AI-C-4 (world checks), AI-C-5 (client checks). 병렬 실행 시 WORK-BOARD에서 어느 서브카테고리를 담당할지 명시.
 
@@ -298,7 +298,7 @@ AI-S는 물리 시뮬 검증을 위해 `anticheat/sim/testdata/*.log` 에 실측
 
 ### 8.4 CI (향후)
 
-현재는 로컬 `go build ./... && go vet ./... && go test ./...` 만 요구. GitHub Actions CI 추가는 Phase 5 이후.
+현재는 로컬 `go build ./... && go vet ./... && go test ./...` 만 요구. GitHub Actions CI 추가는 **Phase 5b Task 5b.1** (β 릴리스 직전).
 
 ---
 
@@ -383,7 +383,7 @@ git branch -d feat/sim-core
 
 ```
 체크리스트:
-[ ] design.md 읽음 (§0-§12 전체)
+[ ] design.md 읽음 (§0-§14 전체)
 [ ] AGENT-PROTOCOL.md 읽음 (이 문서)
 [ ] WORK-BOARD.md 열어 본인 역할(AI-?) 섹션 확인
 [ ] 현재 활성 Proposal 목록 확인

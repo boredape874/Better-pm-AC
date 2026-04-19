@@ -33,7 +33,7 @@ func (*BadPacketDCheck) Description() string {
 	return "Detects NaN or infinite position values in PlayerAuthInput."
 }
 func (*BadPacketDCheck) Punishable() bool { return true }
-func (*BadPacketDCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
+func (c *BadPacketDCheck) Policy() meta.MitigatePolicy { return meta.ParsePolicy(c.cfg.Policy) }
 
 func (c *BadPacketDCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

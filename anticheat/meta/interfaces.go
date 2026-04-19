@@ -118,6 +118,25 @@ const (
 	PolicyKick
 )
 
+// ParsePolicy converts a TOML string ("none", "client_rubberband",
+// "server_filter", "kick") into a MitigatePolicy. Unknown or empty values
+// default to PolicyKick — the safest fallback for a detection whose
+// enforcement was not explicitly configured.
+func ParsePolicy(s string) MitigatePolicy {
+	switch s {
+	case "none":
+		return PolicyNone
+	case "client_rubberband":
+		return PolicyClientRubberband
+	case "server_filter":
+		return PolicyServerFilter
+	case "kick", "":
+		return PolicyKick
+	default:
+		return PolicyKick
+	}
+}
+
 // MitigateDispatcher turns a Detection flag into the configured enforcement
 // action and returns the (possibly rewritten) packet to forward plus whether
 // the session should be terminated. Implemented by anticheat/mitigate.

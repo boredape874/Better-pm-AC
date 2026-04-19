@@ -64,7 +64,7 @@ func (*SpeedCheck) Description() string {
 	return "Detects horizontal ground movement exceeding vanilla limits (blocks/tick)."
 }
 func (*SpeedCheck) Punishable() bool { return true }
-func (*SpeedCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
+func (c *SpeedCheck) Policy() meta.MitigatePolicy { return meta.ParsePolicy(c.cfg.Policy) }
 
 func (c *SpeedCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

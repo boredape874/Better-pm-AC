@@ -28,7 +28,7 @@ func (*NoFallCheck) Description() string {
 	return "Detects landing after a significant fall without damage."
 }
 func (*NoFallCheck) Punishable() bool { return true }
-func (*NoFallCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
+func (c *NoFallCheck) Policy() meta.MitigatePolicy { return meta.ParsePolicy(c.cfg.Policy) }
 
 func (c *NoFallCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

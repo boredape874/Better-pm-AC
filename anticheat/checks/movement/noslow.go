@@ -40,7 +40,7 @@ func (*NoSlowCheck) Description() string {
 	return "Detects moving at full speed while using an item (eating, bow, shield)."
 }
 func (*NoSlowCheck) Punishable() bool { return true }
-func (*NoSlowCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
+func (c *NoSlowCheck) Policy() meta.MitigatePolicy { return meta.ParsePolicy(c.cfg.Policy) }
 
 func (c *NoSlowCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

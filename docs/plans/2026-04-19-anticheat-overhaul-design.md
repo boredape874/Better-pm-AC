@@ -27,7 +27,7 @@
 
 "능가"의 구체 정의:
 - **검출 깊이**: Oomph와 같은 서버 권위 movement/combat 검증 + 물리 시뮬레이션 풀스펙(γ).
-- **커버리지**: Oomph ~40개 대비 **~42개 체크** (범위 2, §6 참조).
+- **커버리지**: Oomph ~40개 대비 **~44개 체크** (범위 2, §6 참조).
 - **정확성**: 오탐(false positive)을 Oomph 수준 이하로 유지하면서 우회 저항성은 상회.
 
 ### 1.2 참고 저장소
@@ -119,7 +119,7 @@
 
 **질문**: Oomph 패리티(~34)/Oomph+α(~42)/완전체(~49) 중 어디까지.
 
-**결정**: **범위 2** — Oomph + 18개 추가 = **총 42개**.
+**결정**: **범위 2** — Oomph + 18개 추가 = **총 44개**.
 
 **제외된 카테고리**: Kaboom·CrashExploit·Spam·Bundle·KillAura/E — 검증 비용 대비 오탐 증가로 ROI 낮음.
 
@@ -607,7 +607,7 @@ type Dispatcher interface {
 
 ---
 
-## 6. 체크 카탈로그 (42개)
+## 6. 체크 카탈로그 (44개)
 
 ### 6.1 카테고리별 요약
 
@@ -621,7 +621,7 @@ type Dispatcher interface {
 | Misc | 3 | 0 | 2 | 5 |
 | **합계** | **10** | **6** | **26** | **42** |
 
-※ 기존 24개 중 일부는 대체되며 새 이름으로 편입. 여기서 "유지/개조/신규"는 최종 42개 관점.
+※ 기존 24개 중 일부는 대체되며 새 이름으로 편입. 여기서 "유지/개조/신규"는 최종 44개 관점.
 
 ### 6.2 전체 체크 목록
 
@@ -781,7 +781,7 @@ rewind_max_ticks    = 80
 [anticheat.ack]
 marker_timeout_ticks = 100   # 이 tick 안에 응답 없으면 드롭
 
-# === 각 체크별 설정 (42개) ===
+# === 각 체크별 설정 (44개) ===
 [anticheat.speed]
 enabled    = true
 fail_buffer = 3
@@ -794,7 +794,7 @@ enabled = true
 violations = 3
 policy = "server_filter"
 
-# ... (42개 전체, 키 목록은 §6.2 Config 칼럼 참조)
+# ... (44개 전체, 키 목록은 §6.2 Config 칼럼 참조)
 
 [anticheat.editionfaker]
 enabled = true
@@ -903,18 +903,22 @@ AI-S가 Phase 2 마친 뒤 γ 특수 물리 추가:
 - **5.5**: **β 릴리스** (γ 기능 disabled 상태).
 - **5.6**: Phase 4 완료 후 γ 기능 enable → **γ 릴리스**.
 
-### 전체 예상 타임라인
+### 전체 예상 타임라인 (5 AI 병렬 전제)
 
-| Phase | 기간 | 누적 |
-|-------|------|------|
-| 1 | 1주 | 1주 |
-| 2 | 2.5주 | 3.5주 |
-| 3 | 2.5주 | 6주 |
-| 4 | 2.5주 | 8.5주 |
-| 5 | 1.5주 | 10주 |
+| Phase | 기간 | 누적 | 비고 |
+|-------|------|------|------|
+| 1 | 1일 | 1일 | AI-O 단독. **완료 (2026-04-19)** |
+| 2 | 2일 | 3일 | 5 AI (W/S/E/A/M) 병렬 |
+| 3 | 3일 | 6일 | 5 서브트랙 (C1~C5) 병렬. Phase 4와 병행 가능 |
+| 4 | 2일 | 6일 | AI-S 단독. Phase 3와 병행 |
+| 5a | 2일 | 8일 | 통합 · 테스트 · 성능 검증 |
+| 5b | 2일 | 10일 | β 릴리스 (γ 기능 disabled) |
+| 5c (γ) | 4일 | 14일 | Phase 4 결과 enable → γ 릴리스 |
 
-**β 출시 = Phase 3 + 5.1~5.5 완료 = ≈ 7.5주**.
-**γ 출시 = +Phase 4 = ≈ 10주**.
+**β 출시 = Phase 1 + 2 + 3 + 5a + 5b = 약 10일 (2026-04-29 경)**.
+**γ 출시 = β + 5c = 약 14일 (2026-05-03 경)**.
+
+참고: 기간은 "AI 에이전트 연속 작업 시 wall-clock 기준". 사람이 직접 하면 원래 7.5주~10주 수준. 병렬 AI 전제가 무너지면 ETA 재협상.
 
 ---
 
@@ -1124,6 +1128,78 @@ type Detection interface {
 | **Policy** | 위반 감지 시의 제재 방식 (Kick/ClientRubberband/ServerFilter/None). |
 | **Orchestrator / AI-O** | 다중 AI 협업에서 인터페이스 관리·Phase 순차 Task 담당. |
 | **SSoT** | Single Source of Truth. 이 설계 문서가 SSoT. |
+
+---
+
+## 13. 관측성 (Observability)
+
+운영 중 어떤 체크가 어떻게 동작했는지 역추적 가능해야 함. AI-M이 Phase 3에서 구현.
+
+### 13.1 이벤트 로그
+
+모든 Detection flag는 structured log (slog) 한 줄:
+
+```
+level=warn msg="ac.flag" player=<uuid> check=Speed/A vl=3 buffer=5 policy=server_filter tick=12345 pos="x,y,z" reason="dx=0.58 > tol 0.02"
+```
+
+필드 고정: `player`, `check`, `vl`, `buffer`, `policy`, `tick`, `pos`, `reason`. 로그 파서가 이 포맷을 전제로 만들어짐.
+
+### 13.2 메트릭
+
+AI-M이 아래 카운터 노출 (Prometheus `/metrics` 엔드포인트, Phase 5b):
+
+| 메트릭 | 타입 | 라벨 |
+|--------|------|------|
+| `pmac_flags_total` | Counter | `check`, `policy`, `result` (logged/rubberband/kick) |
+| `pmac_players_active` | Gauge | - |
+| `pmac_tick_duration_seconds` | Histogram | `phase` (recv/sim/check/dispatch) |
+| `pmac_chunk_cache_size_bytes` | Gauge | `player` |
+| `pmac_ack_pending` | Gauge | - |
+| `pmac_rewind_buffer_entries` | Gauge | - |
+
+### 13.3 디버그 덤프
+
+`Kick` 발생 직전 5초 (100 tick) 입력·상태 스냅샷을 `dumps/<uuid>-<timestamp>.json`에 저장 (옵션, 기본 off). 오탐 분석 필수.
+
+---
+
+## 14. 성능 예산 (Memory / CPU)
+
+100 CCU를 **서버 한 대 · 4 vCPU · 4GB RAM** 에서 처리. Phase 5a 벤치에서 이 선을 지키지 못하면 블로커로 간주.
+
+### 14.1 플레이어당 메모리 상한
+
+| 항목 | 상한 | 근거 |
+|------|------|------|
+| Chunk cache | 400 chunk × ~40KB = **~16MB** | `config.world.max_chunks_per_player` |
+| Entity rewind | 엔티티 50 × 80 tick × 96B = **~400KB** | `config.entity.rewind_max_ticks` |
+| Sim state / input ring | **~64KB** | 200 tick history |
+| Detection metadata | 44 × 128B = **~6KB** | §6 카탈로그 전체 |
+| 합계 | **~17MB / player** | |
+
+100 player × 17MB = **1.7GB**. 4GB 중 2.3GB 여유. OS·Go 런타임 포함해도 안전.
+
+### 14.2 CPU 예산 (per tick)
+
+서버는 20 TPS (50ms/tick). 100 player의 한 tick 처리에 **p99 < 20ms, p50 < 5ms** 목표.
+
+| 단계 | p50 예산 | p99 예산 |
+|------|---------|---------|
+| 패킷 파싱 | 0.5ms | 2ms |
+| 시뮬레이션 (`sim.Step`) | 1.5ms | 6ms |
+| 체크 dispatch (44개) | 1.5ms | 6ms |
+| Mitigate + 출력 | 1ms | 4ms |
+| 여유 | 0.5ms | 2ms |
+| 합계 | **5ms** | **20ms** |
+
+초과 시 AI-S는 sim 핫패스 최적화 (GetNearbyBBoxes 등), AI-W는 chunk 인덱스 구조 재검토.
+
+### 14.3 벤치 시나리오 (Phase 5a `5.4`)
+
+1. 봇 100대 동시 접속 → `/metrics` 에서 p99 tick 20ms 이하 유지 10분.
+2. Speed 치트 봇 10대 + 합법 봇 90대 → 치트만 정확히 flagged, 합법은 0 violation.
+3. 1시간 지속 세션 → RSS 메모리 단조증가 없음 (leak 체크).
 
 ---
 

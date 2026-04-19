@@ -39,7 +39,7 @@ func (*KillAuraCheck) Description() string {
 	return "Detects attacking without swinging arm within the expected tick window."
 }
 func (*KillAuraCheck) Punishable() bool { return true }
-func (*KillAuraCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
+func (c *KillAuraCheck) Policy() meta.MitigatePolicy { return meta.ParsePolicy(c.cfg.Policy) }
 
 func (c *KillAuraCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

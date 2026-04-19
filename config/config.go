@@ -117,6 +117,7 @@ type AnticheatConfig struct {
 // SpeedConfig configures the Speed/A check.
 type SpeedConfig struct {
 	Enabled    bool    `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	MaxSpeed   float64 `toml:"max_speed"`  // blocks/tick at 20 TPS
 	Violations int     `toml:"violations"` // kicks at this VL
 }
@@ -124,6 +125,7 @@ type SpeedConfig struct {
 // SpeedBConfig configures the Speed/B check (aerial horizontal speed).
 type SpeedBConfig struct {
 	Enabled    bool    `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	MaxSpeed   float64 `toml:"max_speed"`  // blocks/tick (same scale as Speed/A)
 	Violations int     `toml:"violations"`
 }
@@ -131,30 +133,35 @@ type SpeedBConfig struct {
 // FlyConfig configures the Fly/A check.
 type FlyConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // NoFallConfig configures the NoFall/A check.
 type NoFallConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // NoFallBConfig configures the NoFall/B check (persistent OnGround spoof).
 type NoFallBConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // PhaseAConfig configures the Phase/A check (impossible position jump).
 type PhaseAConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // ReachConfig configures the Reach/A check.
 type ReachConfig struct {
 	Enabled    bool    `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	MaxReach   float64 `toml:"max_reach"` // blocks
 	Violations int     `toml:"violations"`
 }
@@ -162,24 +169,28 @@ type ReachConfig struct {
 // KillAuraConfig configures the KillAura/A check.
 type KillAuraConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // KillAuraBConfig configures the KillAura/B check (angle-based FOV detection).
 type KillAuraBConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // KillAuraCConfig configures the KillAura/C check (multi-target per-tick).
 type KillAuraCConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // AutoClickerConfig configures the AutoClicker/A check.
 type AutoClickerConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	MaxCPS     int  `toml:"max_cps"` // clicks per second limit
 	Violations int  `toml:"violations"`
 }
@@ -187,6 +198,7 @@ type AutoClickerConfig struct {
 // AutoClickerBConfig configures the AutoClicker/B check (click interval consistency).
 type AutoClickerBConfig struct {
 	Enabled          bool    `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	StdDevThreshold  float64 `toml:"std_dev_threshold_ms"` // ms; below this value is suspicious
 	MinSamples       int     `toml:"min_samples"`          // minimum interval samples before flagging
 	Violations       int     `toml:"violations"`
@@ -195,42 +207,49 @@ type AutoClickerBConfig struct {
 // AimConfig configures the Aim/A (rounded-yaw) check.
 type AimConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // AimBConfig configures the Aim/B check (constant pitch during yaw rotation).
 type AimBConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // BadPacketConfig configures the BadPacket/A check.
 type BadPacketConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // BadPacketBConfig configures the BadPacket/B check (pitch range validation).
 type BadPacketBConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // BadPacketCConfig configures the BadPacket/C check (sprint+sneak simultaneously).
 type BadPacketCConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // BadPacketDConfig configures the BadPacket/D check (NaN/Infinity position).
 type BadPacketDConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // VelocityConfig configures the Velocity/A check (Anti-KB detection).
 type VelocityConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
@@ -241,6 +260,7 @@ type VelocityConfig struct {
 // generous ceiling that prevents false positives on laggy clients.
 type NoSlowConfig struct {
 	Enabled         bool    `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	MaxItemUseSpeed float64 `toml:"max_item_use_speed"` // blocks/tick, default 0.21
 	Violations      int     `toml:"violations"`
 }
@@ -248,60 +268,70 @@ type NoSlowConfig struct {
 // ScaffoldConfig configures the Scaffold/A check.
 type ScaffoldConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // BadPacketEConfig configures the BadPacket/E check.
 type BadPacketEConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // FlyBConfig configures the Fly/B gravity-bypass check.
 type FlyBConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // FlyCConfig configures the Fly/C liquid-fly check.
 type FlyCConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // StepConfig configures the Step/A check (client step > StepHeight).
 type StepConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // HighJumpConfig configures the HighJump/A check.
 type HighJumpConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // JesusConfig configures the Jesus/A water-walking check.
 type JesusConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // SpiderConfig configures the Spider/A wall-climb check.
 type SpiderConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // InvalidMoveConfig configures the InvalidMove/A yaw-snap check.
 type InvalidMoveConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // ReachBConfig configures the Reach/B raycast-based reach check.
 type ReachBConfig struct {
 	Enabled    bool    `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	MaxReach   float64 `toml:"max_reach"`
 	Violations int     `toml:"violations"`
 }
@@ -309,48 +339,56 @@ type ReachBConfig struct {
 // KillAuraDConfig configures the KillAura/D yaw-snap-before-attack check.
 type KillAuraDConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // AutoClickerCConfig configures the AutoClicker/C double-click pattern check.
 type AutoClickerCConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // BadPacketFConfig configures the BadPacket/F missing-flag check.
 type BadPacketFConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // BadPacketGConfig configures the BadPacket/G packet-order check.
 type BadPacketGConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // NukerConfig configures the Nuker/A multi-break-per-tick check.
 type NukerConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // NukerBConfig configures the Nuker/B angular-range break check.
 type NukerBConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // FastBreakConfig configures the FastBreak/A check comparing break time to block hardness.
 type FastBreakConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // FastPlaceConfig configures the FastPlace/A blocks-per-second check.
 type FastPlaceConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	MaxBPS     int  `toml:"max_bps"`
 	Violations int  `toml:"violations"`
 }
@@ -358,12 +396,14 @@ type FastPlaceConfig struct {
 // TowerConfig configures the Tower/A self-tower check.
 type TowerConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
 // InvalidBreakConfig configures the InvalidBreak/A raycast-fail check.
 type InvalidBreakConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
@@ -372,6 +412,7 @@ type InvalidBreakConfig struct {
 // logins outside this list are treated as spoofed Java clients.
 type EditionFakerConfig struct {
 	Enabled         bool    `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	AllowedTitleIDs []int64 `toml:"allowed_title_ids"`
 	Violations      int     `toml:"violations"`
 }
@@ -379,6 +420,7 @@ type EditionFakerConfig struct {
 // ClientSpoofConfig configures the ClientSpoof/A check (DeviceOS vs TitleID mismatch).
 type ClientSpoofConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	Violations int  `toml:"violations"`
 }
 
@@ -386,6 +428,7 @@ type ClientSpoofConfig struct {
 // AllowedVersions is the allow-list of accepted Bedrock protocol versions.
 type ProtocolConfig struct {
 	Enabled         bool    `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	AllowedVersions []int32 `toml:"allowed_versions"`
 	Violations      int     `toml:"violations"`
 }
@@ -394,6 +437,7 @@ type ProtocolConfig struct {
 // server-side jitter while reliably catching Timer hacks (≥ 1.25×).
 type TimerConfig struct {
 	Enabled    bool `toml:"enabled"`
+	Policy     string `toml:"policy"`
 	MaxRatePS  int  `toml:"max_rate_ps"`
 	Violations int  `toml:"violations"`
 }
@@ -427,54 +471,55 @@ func Default() Config {
 				MarkerTimeoutTicks: 100,
 			},
 
-			Speed:        SpeedConfig{Enabled: true, MaxSpeed: 0.4, Violations: 10},
-			SpeedB:       SpeedBConfig{Enabled: true, MaxSpeed: 0.4, Violations: 10},
-			Fly:          FlyConfig{Enabled: true, Violations: 5},
-			FlyB:         FlyBConfig{Enabled: true, Violations: 5},
-			FlyC:         FlyCConfig{Enabled: true, Violations: 5},
-			NoFall:       NoFallConfig{Enabled: true, Violations: 5},
-			NoFallB:      NoFallBConfig{Enabled: true, Violations: 5},
-			NoSlow:       NoSlowConfig{Enabled: true, MaxItemUseSpeed: 0.21, Violations: 8},
-			Phase:        PhaseAConfig{Enabled: true, Violations: 3},
-			Step:         StepConfig{Enabled: true, Violations: 3},
-			HighJump:     HighJumpConfig{Enabled: true, Violations: 3},
-			Jesus:        JesusConfig{Enabled: true, Violations: 5},
-			Spider:       SpiderConfig{Enabled: true, Violations: 5},
-			InvalidMove:  InvalidMoveConfig{Enabled: true, Violations: 1},
-			Reach:        ReachConfig{Enabled: true, MaxReach: 3.1, Violations: 7},
-			ReachB:       ReachBConfig{Enabled: true, MaxReach: 3.1, Violations: 5},
-			KillAura:     KillAuraConfig{Enabled: true, Violations: 1},
-			KillAuraB:    KillAuraBConfig{Enabled: true, Violations: 5},
-			KillAuraC:    KillAuraCConfig{Enabled: true, Violations: 3},
-			KillAuraD:    KillAuraDConfig{Enabled: true, Violations: 3},
-			AutoClicker:  AutoClickerConfig{Enabled: true, MaxCPS: 20, Violations: 20},
-			AutoClickerB: AutoClickerBConfig{Enabled: true, StdDevThreshold: 5.0, MinSamples: 8, Violations: 15},
-			AutoClickerC: AutoClickerCConfig{Enabled: true, Violations: 10},
-			Aim:          AimConfig{Enabled: true, Violations: 20},
-			AimB:         AimBConfig{Enabled: true, Violations: 10},
-			BadPacket:    BadPacketConfig{Enabled: true, Violations: 1},
-			BadPacketB:   BadPacketBConfig{Enabled: true, Violations: 1},
-			BadPacketC:   BadPacketCConfig{Enabled: true, Violations: 1},
-			BadPacketD:   BadPacketDConfig{Enabled: true, Violations: 1},
-			BadPacketE:   BadPacketEConfig{Enabled: true, Violations: 1},
-			BadPacketF:   BadPacketFConfig{Enabled: true, Violations: 3},
-			BadPacketG:   BadPacketGConfig{Enabled: true, Violations: 1},
-			Scaffold:     ScaffoldConfig{Enabled: true, Violations: 3},
-			Nuker:        NukerConfig{Enabled: true, Violations: 1},
-			NukerB:       NukerBConfig{Enabled: true, Violations: 3},
-			FastBreak:    FastBreakConfig{Enabled: true, Violations: 3},
-			FastPlace:    FastPlaceConfig{Enabled: true, MaxBPS: 10, Violations: 5},
-			Tower:        TowerConfig{Enabled: true, Violations: 5},
-			InvalidBreak: InvalidBreakConfig{Enabled: true, Violations: 3},
+			Speed:        SpeedConfig{Enabled: true, Policy: "server_filter", MaxSpeed: 0.4, Violations: 10},
+			SpeedB:       SpeedBConfig{Enabled: true, Policy: "server_filter", MaxSpeed: 0.4, Violations: 10},
+			Fly:          FlyConfig{Enabled: true, Policy: "server_filter", Violations: 5},
+			FlyB:         FlyBConfig{Enabled: true, Policy: "server_filter", Violations: 5},
+			FlyC:         FlyCConfig{Enabled: true, Policy: "server_filter", Violations: 5},
+			NoFall:       NoFallConfig{Enabled: true, Policy: "kick", Violations: 5},
+			NoFallB:      NoFallBConfig{Enabled: true, Policy: "client_rubberband", Violations: 5},
+			NoSlow:       NoSlowConfig{Enabled: true, Policy: "kick", MaxItemUseSpeed: 0.21, Violations: 8},
+			Phase:        PhaseAConfig{Enabled: true, Policy: "server_filter", Violations: 3},
+			Step:         StepConfig{Enabled: true, Policy: "server_filter", Violations: 3},
+			HighJump:     HighJumpConfig{Enabled: true, Policy: "server_filter", Violations: 3},
+			Jesus:        JesusConfig{Enabled: true, Policy: "server_filter", Violations: 5},
+			Spider:       SpiderConfig{Enabled: true, Policy: "server_filter", Violations: 5},
+			InvalidMove:  InvalidMoveConfig{Enabled: true, Policy: "kick", Violations: 1},
+			Reach:        ReachConfig{Enabled: true, Policy: "kick", MaxReach: 3.1, Violations: 7},
+			ReachB:       ReachBConfig{Enabled: true, Policy: "kick", MaxReach: 3.1, Violations: 5},
+			KillAura:     KillAuraConfig{Enabled: true, Policy: "kick", Violations: 1},
+			KillAuraB:    KillAuraBConfig{Enabled: true, Policy: "kick", Violations: 5},
+			KillAuraC:    KillAuraCConfig{Enabled: true, Policy: "kick", Violations: 3},
+			KillAuraD:    KillAuraDConfig{Enabled: true, Policy: "kick", Violations: 3},
+			AutoClicker:  AutoClickerConfig{Enabled: true, Policy: "kick", MaxCPS: 20, Violations: 20},
+			AutoClickerB: AutoClickerBConfig{Enabled: true, Policy: "kick", StdDevThreshold: 5.0, MinSamples: 8, Violations: 15},
+			AutoClickerC: AutoClickerCConfig{Enabled: true, Policy: "kick", Violations: 10},
+			Aim:          AimConfig{Enabled: true, Policy: "kick", Violations: 20},
+			AimB:         AimBConfig{Enabled: true, Policy: "kick", Violations: 10},
+			BadPacket:    BadPacketConfig{Enabled: true, Policy: "kick", Violations: 1},
+			BadPacketB:   BadPacketBConfig{Enabled: true, Policy: "kick", Violations: 1},
+			BadPacketC:   BadPacketCConfig{Enabled: true, Policy: "kick", Violations: 1},
+			BadPacketD:   BadPacketDConfig{Enabled: true, Policy: "kick", Violations: 1},
+			BadPacketE:   BadPacketEConfig{Enabled: true, Policy: "kick", Violations: 1},
+			BadPacketF:   BadPacketFConfig{Enabled: true, Policy: "kick", Violations: 3},
+			BadPacketG:   BadPacketGConfig{Enabled: true, Policy: "kick", Violations: 1},
+			Scaffold:     ScaffoldConfig{Enabled: true, Policy: "kick", Violations: 3},
+			Nuker:        NukerConfig{Enabled: true, Policy: "kick", Violations: 1},
+			NukerB:       NukerBConfig{Enabled: true, Policy: "kick", Violations: 3},
+			FastBreak:    FastBreakConfig{Enabled: true, Policy: "kick", Violations: 3},
+			FastPlace:    FastPlaceConfig{Enabled: true, Policy: "kick", MaxBPS: 10, Violations: 5},
+			Tower:        TowerConfig{Enabled: true, Policy: "kick", Violations: 5},
+			InvalidBreak: InvalidBreakConfig{Enabled: true, Policy: "kick", Violations: 3},
 			EditionFaker: EditionFakerConfig{
 				Enabled:         true,
+				Policy:          "kick",
 				AllowedTitleIDs: []int64{896928775, 2047319603, 1828326430},
 				Violations:      1,
 			},
-			ClientSpoof: ClientSpoofConfig{Enabled: true, Violations: 1},
-			Protocol:    ProtocolConfig{Enabled: true, AllowedVersions: []int32{}, Violations: 1},
-			Timer:       TimerConfig{Enabled: true, MaxRatePS: 22, Violations: 5},
-			Velocity:    VelocityConfig{Enabled: true, Violations: 5},
+			ClientSpoof: ClientSpoofConfig{Enabled: true, Policy: "kick", Violations: 1},
+			Protocol:    ProtocolConfig{Enabled: true, Policy: "kick", AllowedVersions: []int32{}, Violations: 1},
+			Timer:       TimerConfig{Enabled: true, Policy: "kick", MaxRatePS: 22, Violations: 5},
+			Velocity:    VelocityConfig{Enabled: true, Policy: "kick", Violations: 5},
 		},
 	}
 }

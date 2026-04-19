@@ -68,7 +68,7 @@ func (*FlyBCheck) Description() string {
 	return "Detects gravity bypass: Y velocity not decreasing at the expected physics rate."
 }
 func (*FlyBCheck) Punishable() bool { return true }
-func (*FlyBCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
+func (c *FlyBCheck) Policy() meta.MitigatePolicy { return meta.ParsePolicy(c.cfg.Policy) }
 
 func (c *FlyBCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

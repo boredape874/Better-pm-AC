@@ -49,7 +49,7 @@ func (*AimBCheck) Description() string {
 	return "Detects sustained yaw rotation with locked pitch (aimbot signature, mouse only)."
 }
 func (*AimBCheck) Punishable() bool { return true }
-func (*AimBCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
+func (c *AimBCheck) Policy() meta.MitigatePolicy { return meta.ParsePolicy(c.cfg.Policy) }
 
 func (c *AimBCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{

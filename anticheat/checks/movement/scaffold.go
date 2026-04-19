@@ -81,7 +81,7 @@ func (*ScaffoldCheck) Description() string {
 	return "Detects block placements at impossible angles (Scaffold/Breezily cheats)."
 }
 func (*ScaffoldCheck) Punishable() bool { return true }
-func (*ScaffoldCheck) Policy() meta.MitigatePolicy { return meta.PolicyKick }
+func (c *ScaffoldCheck) Policy() meta.MitigatePolicy { return meta.ParsePolicy(c.cfg.Policy) }
 
 func (c *ScaffoldCheck) DefaultMetadata() *meta.DetectionMetadata {
 	return &meta.DetectionMetadata{
