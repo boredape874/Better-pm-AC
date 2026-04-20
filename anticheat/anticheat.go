@@ -13,6 +13,7 @@ import (
 	pkt "github.com/boredape874/Better-pm-AC/anticheat/checks/packet"
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
+	"github.com/boredape874/Better-pm-AC/anticheat/mitigate"
 	"github.com/boredape874/Better-pm-AC/config"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/google/uuid"
@@ -108,8 +109,17 @@ type Manager struct {
 	velocity     *movement.VelocityCheck
 	scaffold     *movement.ScaffoldCheck
 
-	// KickFunc is called when a player should be disconnected.
+	// KickFunc is called when a player should be disconnected. It is also
+	// the kick hook for the internal mitigate.Dispatcher built on demand
+	// inside handleViolation. Nil → dry-run (log only). Used to adapt the
+	// uuid-typed KickFunc into the dispatcher's string-typed contract.
 	KickFunc func(id uuid.UUID, reason string)
+
+	// Mitigation hooks. When non-nil, Rubberband/ServerFilter dispatcher paths
+	// invoke them; nil hooks degrade to log-only inside the Dispatcher. Set by
+	// the proxy layer during Phase 5a integration.
+	RubberbandFunc   mitigate.RubberbandFunc
+	ServerFilterFunc mitigate.ServerFilterFunc
 }
 
 // NewManager creates a Manager ready to process packets.
@@ -584,22 +594,43 @@ func (m *Manager) OnBlockPlace(id uuid.UUID, blockPos mgl32.Vec3, face int32) {
 	}
 }
 
-// handleViolation logs the violation and kicks when the threshold is reached.
-func (m *Manager) handleViolation(p *data.Player, d Detection, meta *DetectionMetadata, extraInfo string) {
+// handleViolation logs the violation with its detection context and routes the
+// enforcement decision through a mitigate.Dispatcher built from the Manager's
+// current hook configuration. The dispatcher itself emits a structured
+// "violation" record with the policy name — we additionally log the extraInfo
+// string here so check-specific diagnostics survive alongside the routing log.
+//
+// The dispatcher is constructed per call because it is a tiny struct (four
+// fields + a logger reference) and the caller may mutate m.KickFunc /
+// m.RubberbandFunc / m.ServerFilterFunc at runtime. Rebuilding avoids any
+// lock or staleness concern; the allocation cost is negligible next to the
+// logging the dispatcher performs.
+//
+// The packet argument to Apply is nil because Manager-scope checks do not
+// have the offending packet in hand — ServerFilter / Rubberband needing the
+// packet are wired at the proxy layer in Phase 5a.2 where the packet IS in
+// scope. Nil hooks degrade to log-only inside the dispatcher, so nothing
+// panics when a check with PolicyServerFilter fires through here.
+func (m *Manager) handleViolation(p *data.Player, d Detection, md *DetectionMetadata, extraInfo string) {
+	// Per-check diagnostic line (dispatcher logs a structured "violation" too).
 	m.log.Warn("violation detected",
 		"player", p.Username,
 		"uuid", p.UUID,
 		"check", d.Type()+"/"+d.SubType(),
-		"violations", fmt.Sprintf("%.2f", meta.Violations),
-		"max", meta.MaxViolations,
+		"violations", fmt.Sprintf("%.2f", md.Violations),
+		"max", md.MaxViolations,
 		"info", extraInfo,
 	)
 
-	if d.Punishable() && meta.Exceeded() && m.KickFunc != nil {
-		reason := fmt.Sprintf(
-			"Kicked by Better-pm-AC: %s/%s (VL %.2f)",
-			d.Type(), d.SubType(), meta.Violations,
-		)
-		m.KickFunc(p.UUID, reason)
+	// Adapt uuid-typed KickFunc into the dispatcher's string-typed contract.
+	// Nil stays nil so the dispatcher knows to dry-run the kick path.
+	var kick mitigate.KickFunc
+	if m.KickFunc != nil {
+		uid := p.UUID
+		kickCb := m.KickFunc
+		kick = func(_ string, reason string) { kickCb(uid, reason) }
 	}
+
+	disp := mitigate.NewDispatcherWithHooks(m.log, kick, m.RubberbandFunc, m.ServerFilterFunc)
+	disp.Apply(p.UUID.String(), d, md, nil)
 }

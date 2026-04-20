@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 2 완료 (통합 배선 포함) → Phase 3 준비** |
-| 전체 진도 | 39 / ~75 Tasks done (Phase 1 전체 + 2.E.1–3, 2.A.1–3, 2.M.1–4, 2.S.0–11, 2.W.0–2/4–7; 2.W.3은 γ+1로 연기) |
+| Phase 진행 중 | **Phase 2 완료 (통합 배선 포함) · 5a.1 부분 선행 → Phase 3 진입** |
+| 전체 진도 | 39 + 5a.1 부분 / ~75 Tasks done (Phase 1 전체 + 2.E.1–3, 2.A.1–3, 2.M.1–4, 2.S.0–11, 2.W.0–2/4–7, 5a.1 mitigate 경로; 2.W.3은 γ+1로 연기) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
@@ -578,11 +578,17 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 # Phase 5a — Integration (순차 · AI-O)
 
 ### Task 5a.1 — Manager 배선
-- Status: **pending**
+- Status: **in-progress (mitigate 부분 완료)**
 - Owner: AI-O
 - Depends on: Phase 2 · Phase 3 Movement/Combat/Packet 완료
-- Files: `anticheat/anticheat.go`
+- Files: `anticheat/anticheat.go`, `anticheat/dispatcher_test.go`
 - Acceptance: world/sim/entity/ack/mitigate 전부 Manager에서 생성·주입·호출.
+- 진행:
+  - ✅ Mitigate `Dispatcher` 가 `handleViolation` 경로로 배선됨: `KickFunc`/`RubberbandFunc`/`ServerFilterFunc` 필드를 Manager 가 보유, Apply 가 Policy 별로 라우팅.
+  - ✅ 3종 단위 테스트 (`TestHandleViolationRoutesKickThroughDispatcher`, `TestHandleViolationKickDryRunWhenKickFuncNil`, `TestHandleViolationRubberbandHookFires`) 통과.
+  - ⏭️ Sim/World/Entity Rewind 는 현재 Session (proxy 레이어) 에 붙어있고, Manager 가 Session → Player 매핑을 통해 접근하도록 하는 배선은 Phase 3 체크 마이그레이션과 함께 진행. 체크가 sim 결과에 의존하기 시작하면 그 때 Manager 에 sim.Engine 필드 추가 예정.
+  - ⏭️ Ack.Dispatch 호출 지점은 Phase 3 Timer/KB 체크에서 배선.
+- Commits: (Manager+Dispatcher 배치)
 
 ### Task 5a.2 — proxy 통합
 - Status: **pending**
