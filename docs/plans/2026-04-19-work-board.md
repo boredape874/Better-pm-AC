@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 3 진행 중** (Movement/Combat/Packet/World/Client 5 갈래 병렬) |
-| 전체 진도 | 42 + 5a.1 부분 / ~75 Tasks done (Phase 1 전체 + Phase 2 전체 + 5a.1 mitigate + 3.C1.1/3/7 β; 2.W.3은 γ+1로 연기) |
+| Phase 진행 중 | **Phase 3 Movement 절반 완료** (3.C1.1/3/6/7/14/15 β; 2/4/5/8/9/10/11/12/13 남음) |
+| 전체 진도 | 45 + 5a.1 부분 / ~75 Tasks done (Phase 1 전체 + Phase 2 전체 + 5a.1 mitigate + 3.C1.1/3/6/7/14/15 β; 2.W.3은 γ+1로 연기) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
@@ -472,7 +472,16 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ### Task 3.C1.5 — Fly/C (유체) 신규
 - Status: **pending** · Depends on: 3.C1.3, 2.S.8
 ### Task 3.C1.6 — Phase/A 재작성 (BBox 기반)
-- Status: **pending** · Depends on: 2.S.6
+- Status: **done (β: 스펙+단위테스트; BBox 버전은 γ 2.W.5 완료 후)**
+- Owner: AI-C-1
+- Completed: AI-C-1 2026-04-20
+- Depends on: 2.S.6
+- Files: `docs/check-specs/movement-phase-a.md`, `anticheat/checks/movement/phase_test.go`
+- Acceptance:
+  - ✅ 스펙 문서 (6-block cap, teleport grace, gliding 면제).
+  - ✅ 단위 테스트 5종 (legal sprint-jump / cheat / boundary / teleport grace / Policy).
+  - ✅ `Policy()` 반환 Kick.
+  - ⏭️ BBox 교차 기반 재작성은 γ: World tracker raycast (2.W.5) 완료 + sim.CollisionSystem 통합 후.
 ### Task 3.C1.7 — NoFall/A 재작성
 - Status: **done (β: 스펙+단위테스트)**
 - Owner: AI-C-1
@@ -496,9 +505,25 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ### Task 3.C1.13 — InvalidMove/A 신규
 - Status: **pending** · Depends on: 1.10
 ### Task 3.C1.14 — NoSlow/A 개조
-- Status: **pending** · Depends on: 2.S.11
+- Status: **done (β: 스펙+단위테스트)**
+- Owner: AI-C-1
+- Completed: AI-C-1 2026-04-20
+- Depends on: 2.S.11
+- Files: `docs/check-specs/movement-noslow-a.md`, `anticheat/checks/movement/noslow_test.go`
+- Acceptance:
+  - ✅ 스펙 문서 (0.21 b/tick cap, water / knockback 면제).
+  - ✅ 단위 테스트 5종 (legal / cheat / boundary / not-using-item / Policy).
+  - ✅ `Policy()` 반환 Kick.
 ### Task 3.C1.15 — Velocity/A 개조
-- Status: **pending** · Depends on: 2.A.2, 2.S.11
+- Status: **done (β: 스펙+단위테스트)**
+- Owner: AI-C-1
+- Completed: AI-C-1 2026-04-20
+- Depends on: 2.A.2, 2.S.11
+- Files: `docs/check-specs/movement-velocity-a.md`, `anticheat/checks/movement/velocity_test.go`
+- Acceptance:
+  - ✅ 스펙 문서 (15% projection ratio, 0.1 minKB floor).
+  - ✅ 단위 테스트 5종 (legal absorption / cheat / sub-threshold / ratio boundary / Policy).
+  - ✅ `Policy()` 반환 Kick.
 
 공통 acceptance: 해당 체크의 `docs/check-specs/<key>.md` 먼저 작성, 단위 테스트 3종(합법/치트/경계) 포함, `Policy()` 반환 확정.
 
