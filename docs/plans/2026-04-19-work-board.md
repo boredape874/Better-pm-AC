@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 3 Movement 절반 + Packet 3/5 완료** |
-| 전체 진도 | 46 + 5a.1 부분 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate + 3.C1.{1,3,6,7,14,15} β + 3.C3.{2,3,4} β; 2.W.3은 γ+1로 연기) |
+| Phase 진행 중 | **Phase 3 Movement 절반 + Combat 6/11 + Packet 3/5 완료** |
+| 전체 진도 | 52 + 5a.1 부분 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate + 3.C1.{1,3,6,7,14,15} β + 3.C2.{1,3,4,5,7,10} β + 3.C3.{2,3,4} β; 2.W.3은 γ+1로 연기) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
@@ -530,27 +530,78 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ## Phase 3 / AI-C-2 — Combat 체크
 
 ### Task 3.C2.1 — Reach/A 개조 (rewind)
-- Status: **pending** · Depends on: 2.E.2
+- Status: **done (β: 스펙+단위테스트; γ 시 rewind 기반 재측정 예정)**
+- Owner: AI-C-2
+- Completed: AI-C-2 2026-04-21
+- Depends on: 2.E.2
+- Files: `docs/check-specs/combat-reach-a.md`, `anticheat/checks/combat/reach_test.go`
+- Acceptance:
+  - ✅ 스펙 문서 완성 (ping 보정 로직 및 eye offset 설명 포함).
+  - ✅ 단위 테스트 5종 (legal / cheat / boundary / ping-compensation / Policy).
+  - ✅ `Policy()` 반환 Kick.
+
 ### Task 3.C2.2 — Reach/B 신규 (raycast)
 - Status: **pending** · Depends on: 2.W.5, 2.E.2
+
 ### Task 3.C2.3 — KillAura/A 유지 (Policy 추가)
-- Status: **pending**
+- Status: **done (β: 스펙+단위테스트)**
+- Owner: AI-C-2
+- Completed: AI-C-2 2026-04-21
+- Files: `docs/check-specs/combat-killaura-abc.md`, `anticheat/checks/combat/killaura_test.go`
+- Acceptance:
+  - ✅ 합쳐진 /A+/B+/C 스펙 문서.
+  - ✅ /A 단위테스트 5종 (grace / in-window / swing-less / tick-wrap / Policy).
+  - ✅ `Policy()` 반환 Kick.
+
 ### Task 3.C2.4 — KillAura/B 개조 (FOV rewind)
-- Status: **pending** · Depends on: 2.E.2
+- Status: **done (β: 스펙+단위테스트; γ 시 rewind 기반 target 보정 예정)**
+- Owner: AI-C-2
+- Completed: AI-C-2 2026-04-21
+- Depends on: 2.E.2
+- Files: `docs/check-specs/combat-killaura-abc.md`, `anticheat/checks/combat/killaura_test.go`
+- Acceptance:
+  - ✅ 공유 스펙 내 /B 전용 알고리즘/임계치 명세.
+  - ✅ 단위 테스트 3종 (on-axis / behind-target / Policy).
+
 ### Task 3.C2.5 — KillAura/C 유지
-- Status: **pending**
+- Status: **done (β: 스펙+단위테스트)**
+- Owner: AI-C-2
+- Completed: AI-C-2 2026-04-21
+- Files: `docs/check-specs/combat-killaura-abc.md`, `anticheat/checks/combat/killaura_test.go`
+- Acceptance:
+  - ✅ 공유 스펙 내 /C 전용 섹션.
+  - ✅ 단위 테스트 4종 (single / multi-same-tick / multi-adjacent-tick / Policy).
+
 ### Task 3.C2.6 — KillAura/D 신규 (yaw-snap)
 - Status: **pending**
+
 ### Task 3.C2.7 — AutoClicker/A 유지
-- Status: **pending**
+- Status: **done (β: 스펙+단위테스트)**
+- Owner: AI-C-2
+- Completed: AI-C-2 2026-04-21
+- Files: `docs/check-specs/combat-autoclicker-a.md`, `anticheat/checks/combat/autoclicker_test.go`
+- Acceptance:
+  - ✅ 스펙 문서 (rolling 1s window, FailBuffer=4, TrustDuration 30s).
+  - ✅ 단위 테스트 5종 (legal / cheat / boundary / disabled / Policy).
+  - ✅ `Policy()` 반환 Kick.
+
 ### Task 3.C2.8 — AutoClicker/B 유지
-- Status: **pending**
+- Status: **pending (γ: 정밀 타임스탬프 주입 필요)**
+
 ### Task 3.C2.9 — AutoClicker/C 신규 (double-click)
 - Status: **pending**
+
 ### Task 3.C2.10 — Aim/A 유지
-- Status: **pending**
+- Status: **done (β: 스펙+단위테스트)**
+- Owner: AI-C-2
+- Completed: AI-C-2 2026-04-21
+- Files: `docs/check-specs/combat-aim-a.md`, `anticheat/checks/combat/aim_test.go`
+- Acceptance:
+  - ✅ 스펙 문서 (round-match 3e-5, 1e-3 idle gate, mouse-only).
+  - ✅ 단위 테스트 5종 (non-mouse / round-delta / natural-delta / idle / Policy).
+
 ### Task 3.C2.11 — Aim/B 유지
-- Status: **pending**
+- Status: **pending (γ: ConstPitchTicks 시나리오 주입 필요)**
 
 ## Phase 3 / AI-C-3 — Packet 체크
 
