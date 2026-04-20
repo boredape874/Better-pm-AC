@@ -42,6 +42,7 @@ func New(cfg config.Config, log *slog.Logger) *Proxy {
 		sessions: make(map[uuid.UUID]*Session),
 	}
 	ac.KickFunc = p.kick
+	ac.RubberbandFunc = p.rubberband
 	return p
 }
 
@@ -449,6 +450,63 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 		default:
 		}
 	}
+}
+
+// rubberband snaps the client back to the server-authoritative position
+// recorded in the anticheat data model. Implements mitigate.RubberbandFunc.
+//
+// This is the proxy-side companion to PolicyClientRubberband: when a check
+// fires with that policy, the dispatcher calls this function with the
+// player's UUID (as a string — that's the dispatcher contract). We:
+//
+//  1. Look up the live Session so we have the client connection + entity RID.
+//  2. Look up the player's anticheat record so we have CurrentPosition and
+//     the absolute (yaw, pitch). CurrentPosition is the last-accepted server
+//     position — exactly where the server believes the player should be.
+//  3. Send a MovePlayer packet with Mode=MoveModeReset to teleport the client
+//     back. MoveModeReset is the standard Bedrock rubberband mode and forces
+//     the client to discard any pending prediction state.
+//
+// Failure modes are silent: if the session has been torn down between the
+// check firing and this hook running, we drop the call rather than panic.
+// Any WritePacket error is logged at debug because rubberbands tend to
+// happen at the moment a connection is unhealthy and noisy errors here
+// would clutter the operator's view of the actual root cause.
+func (p *Proxy) rubberband(uuidStr string) {
+	id, err := uuid.Parse(uuidStr)
+	if err != nil {
+		p.log.Warn("rubberband: invalid uuid", "uuid", uuidStr, "err", err)
+		return
+	}
+	p.mu.Lock()
+	sess, ok := p.sessions[id]
+	p.mu.Unlock()
+	if !ok {
+		return
+	}
+	pl := p.ac.GetPlayer(id)
+	if pl == nil {
+		return
+	}
+
+	pos := pl.CurrentPosition()
+	yaw, pitch := pl.RotationAbsolute()
+
+	// Position in MovePlayer is feet-level (matches data.Player storage).
+	if err := sess.Client.WritePacket(&packet.MovePlayer{
+		EntityRuntimeID: sess.EntityRID,
+		Position:        pos,
+		Pitch:           pitch,
+		Yaw:             yaw,
+		HeadYaw:         yaw,
+		Mode:            packet.MoveModeReset,
+		OnGround:        false,
+		Tick:            pl.SimFrame(),
+	}); err != nil {
+		p.log.Debug("rubberband write failed", "uuid", id, "err", err)
+		return
+	}
+	p.log.Info("rubberband", "uuid", id, "pos", pos)
 }
 
 // kick disconnects the player identified by id with the given reason.

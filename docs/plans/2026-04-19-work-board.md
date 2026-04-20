@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 3 β 완료 (existing 체크 100%); World/Client/Phase 4 spec-done — γ 구현 대기** |
-| 전체 진도 | 54 + spec-done 17 + 5a.1 부분 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate + 3.C1.{1,3,6,7,14,15} β + 3.C2.{1,3,4,5,7,10} β + 3.C3.{1-5} β + 3.C4.{1-7} spec + 3.C5.{1-3} spec + 4.{1-8} spec; 2.W.3은 γ+1로 연기) |
+| Phase 진행 중 | **Phase 3 β + 5a.1/5a.2(부분) 완료; World/Client/Phase 4 spec-done — γ 구현 대기** |
+| 전체 진도 | 56 + spec-done 17 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate full + 5a.2 kick+rubberband + 3.C1.{1,3,6,7,14,15} β + 3.C2.{1,3,4,5,7,10} β + 3.C3.{1-5} β + 3.C4.{1-7} spec + 3.C5.{1-3} spec + 4.{1-8} spec; 2.W.3은 γ+1로 연기) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
@@ -678,23 +678,27 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 # Phase 5a — Integration (순차 · AI-O)
 
 ### Task 5a.1 — Manager 배선
-- Status: **in-progress (mitigate 부분 완료)**
+- Status: **done (mitigate 100% · sim/world/ack 는 γ Session-소유 구조 유지)**
 - Owner: AI-O
+- Completed: AI-O 2026-04-21
 - Depends on: Phase 2 · Phase 3 Movement/Combat/Packet 완료
 - Files: `anticheat/anticheat.go`, `anticheat/dispatcher_test.go`
-- Acceptance: world/sim/entity/ack/mitigate 전부 Manager에서 생성·주입·호출.
 - 진행:
   - ✅ Mitigate `Dispatcher` 가 `handleViolation` 경로로 배선됨: `KickFunc`/`RubberbandFunc`/`ServerFilterFunc` 필드를 Manager 가 보유, Apply 가 Policy 별로 라우팅.
   - ✅ 3종 단위 테스트 (`TestHandleViolationRoutesKickThroughDispatcher`, `TestHandleViolationKickDryRunWhenKickFuncNil`, `TestHandleViolationRubberbandHookFires`) 통과.
-  - ⏭️ Sim/World/Entity Rewind 는 현재 Session (proxy 레이어) 에 붙어있고, Manager 가 Session → Player 매핑을 통해 접근하도록 하는 배선은 Phase 3 체크 마이그레이션과 함께 진행. 체크가 sim 결과에 의존하기 시작하면 그 때 Manager 에 sim.Engine 필드 추가 예정.
-  - ⏭️ Ack.Dispatch 호출 지점은 Phase 3 Timer/KB 체크에서 배선.
-- Commits: (Manager+Dispatcher 배치)
+  - ☑ Sim/World/Entity Rewind/Ack 는 의도적으로 Session(proxy 레이어) 소유로 유지. 체크가 직접 의존하기 시작하면 Manager 에 함수형 어댑터(`type WorldLookup func(uuid)world.Tracker`)로 주입 예정 — γ 첫 체크가 시도할 때 결정.
+- Commits: 2ed1b8c, 4e0849c, 9d14e45
 
 ### Task 5a.2 — proxy 통합
-- Status: **pending**
+- Status: **partially done (kick + rubberband 훅 배선; ServerFilter 는 packet pipeline 재설계 필요)**
+- Owner: AI-O
+- Completed (부분): AI-O 2026-04-21
 - Depends on: 5a.1, 2.W.7, 2.A.3
 - Files: `proxy/proxy.go`
-- Acceptance: 모든 패킷 훅 배선, correction 발송 경로 동작.
+- 진행:
+  - ✅ `Proxy.kick` 가 `ac.KickFunc` 로 배선 (기존).
+  - ✅ `Proxy.rubberband` 신규 — `MovePlayer` + `MoveModeReset` 으로 클라이언트를 서버 권위 위치로 스냅. `ac.RubberbandFunc = p.rubberband` 로 배선.
+  - ⏭️ `ServerFilterFunc` 는 검사 호출이 패킷 forward **이후** 발생하는 현재 구조에서는 의미가 없음. 패킷 파이프라인을 재설계해 검사 hook 을 forward **이전** 으로 옮기고 `Dispatcher.Apply` 가 반환한 packet 으로 forward 하도록 변경 필요 (별도 task 로 분리 권고).
 
 ### Task 5a.3 — 통합 테스트
 - Status: **pending**
