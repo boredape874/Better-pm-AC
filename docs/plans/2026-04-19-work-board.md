@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 2 완료 (통합 배선 포함) · 5a.1 부분 선행 → Phase 3 진입** |
-| 전체 진도 | 39 + 5a.1 부분 / ~75 Tasks done (Phase 1 전체 + 2.E.1–3, 2.A.1–3, 2.M.1–4, 2.S.0–11, 2.W.0–2/4–7, 5a.1 mitigate 경로; 2.W.3은 γ+1로 연기) |
+| Phase 진행 중 | **Phase 3 진행 중** (Movement/Combat/Packet/World/Client 5 갈래 병렬) |
+| 전체 진도 | 42 + 5a.1 부분 / ~75 Tasks done (Phase 1 전체 + Phase 2 전체 + 5a.1 mitigate + 3.C1.1/3/7 β; 2.W.3은 γ+1로 연기) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
@@ -445,11 +445,28 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ## Phase 3 / AI-C-1 — Movement 체크
 
 ### Task 3.C1.1 — Speed/A 재작성 (sim-based)
-- Status: **pending** · Depends on: 2.S.11, 2.M.1
+- Status: **done (β: 스펙+단위테스트; sim 재작성은 γ에서)**
+- Owner: AI-C-1
+- Completed: AI-C-1 2026-04-20
+- Depends on: 2.S.11, 2.M.1
+- Files: `docs/check-specs/movement-speed-a.md`, `anticheat/checks/movement/speed_test.go`
+- Acceptance:
+  - ✅ 스펙 문서 (§ Summary–Test vectors 전부).
+  - ✅ 단위 테스트 4종 (합법/치트/경계/Policy).
+  - ✅ `Policy()` 반환 확정 (default Kick).
+  - ⏭️ `sim.Engine.Step()` 기반 재작성은 γ — 현재 헤유리스틱이 β 수용 기준을 만족 (0 FP on test fixtures).
 ### Task 3.C1.2 — Speed/B 재작성
 - Status: **pending** · Depends on: 3.C1.1
 ### Task 3.C1.3 — Fly/A 재작성
-- Status: **pending** · Depends on: 2.S.11
+- Status: **done (β: 스펙+단위테스트)**
+- Owner: AI-C-1
+- Completed: AI-C-1 2026-04-20
+- Depends on: 2.S.11
+- Files: `docs/check-specs/movement-fly-a.md`, `anticheat/checks/movement/fly_test.go`
+- Acceptance:
+  - ✅ 스펙 문서 (hover / upward_fly / 면제 목록).
+  - ✅ 단위 테스트 5종 (jump arc / hover / upward / creative / Policy).
+  - ✅ `Policy()` 반환 확정 (default ServerFilter).
 ### Task 3.C1.4 — Fly/B 재작성
 - Status: **pending** · Depends on: 3.C1.3
 ### Task 3.C1.5 — Fly/C (유체) 신규
@@ -457,7 +474,15 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ### Task 3.C1.6 — Phase/A 재작성 (BBox 기반)
 - Status: **pending** · Depends on: 2.S.6
 ### Task 3.C1.7 — NoFall/A 재작성
-- Status: **pending** · Depends on: 2.S.11
+- Status: **done (β: 스펙+단위테스트)**
+- Owner: AI-C-1
+- Completed: AI-C-1 2026-04-20
+- Depends on: 2.S.11
+- Files: `docs/check-specs/movement-nofall-a.md`, `anticheat/checks/movement/nofall_test.go`
+- Acceptance:
+  - ✅ 스펙 문서 (damage threshold 3.0 blocks, water / slow-falling 면제).
+  - ✅ 단위 테스트 4종 (short fall / cheat / boundary / Policy).
+  - ✅ `Policy()` 반환 확정 (default Kick).
 ### Task 3.C1.8 — NoFall/B 재작성
 - Status: **pending** · Depends on: 2.S.11
 ### Task 3.C1.9 — Step/A 신규
