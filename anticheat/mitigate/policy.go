@@ -11,28 +11,48 @@ import (
 // dispatcher stays agnostic of how the connection is actually torn down.
 type KickFunc func(uuid string, reason string)
 
+// RubberbandFunc snaps a client back to its last-known server-valid
+// position by sending a MovePlayer teleport packet. The proxy implements
+// this because only it owns the client connection.
+type RubberbandFunc func(uuid string)
+
+// ServerFilterFunc rewrites an offending packet in place — typically
+// overwriting the Position with the last valid coordinate — so the
+// server never observes the cheated value. Returns the packet to
+// forward; returning nil drops the packet entirely.
+type ServerFilterFunc func(uuid string, original packet.Packet) packet.Packet
+
 // Dispatcher implements meta.MitigateDispatcher. It routes each Detection to
 // the enforcement path encoded in its Policy:
 //
 //   - PolicyKick            → log; if MaxViolations is exceeded, invoke KickFunc
-//   - PolicyClientRubberband → (2.M.3) to be wired with ack markers
-//   - PolicyServerFilter    → (2.M.4) to be wired with packet rewriting
+//   - PolicyClientRubberband → invoke RubberbandFunc; packet forwards unchanged
+//   - PolicyServerFilter    → ServerFilterFunc rewrites the packet
 //   - PolicyNone            → log only; forward unchanged
 //
-// This 2.M.1/2.M.2 milestone delivers the Kick path plus the structural hook
-// points for the other policies. Tasks 2.M.3 and 2.M.4 fill in the remaining
-// behaviors behind those hooks.
+// Callbacks can be nil (dry-run / tests). Nil RubberbandFunc and
+// ServerFilterFunc degrade to log-only for that policy — they never
+// panic.
 type Dispatcher struct {
-	log  *slog.Logger
-	kick KickFunc
+	log    *slog.Logger
+	kick   KickFunc
+	rubber RubberbandFunc
+	filter ServerFilterFunc
 }
 
-// NewDispatcher builds a Dispatcher. log must not be nil — the dispatcher
-// always emits a structured record for every violation. kick may be nil in
-// tests or dry-run contexts, in which case Kick policy decisions degrade to
-// "log only" without terminating the session.
+// NewDispatcher builds a Dispatcher with only the kick hook wired.
+// Rubberband / server-filter default to nil — use NewDispatcherWithHooks
+// to provide them. log must not be nil; it always emits a structured
+// record for every violation.
 func NewDispatcher(log *slog.Logger, kick KickFunc) *Dispatcher {
 	return &Dispatcher{log: log, kick: kick}
+}
+
+// NewDispatcherWithHooks builds a Dispatcher with all three mitigation
+// callbacks wired. Any callback may be nil; nil callbacks degrade their
+// policy path to "log only".
+func NewDispatcherWithHooks(log *slog.Logger, kick KickFunc, rubber RubberbandFunc, filter ServerFilterFunc) *Dispatcher {
+	return &Dispatcher{log: log, kick: kick, rubber: rubber, filter: filter}
 }
 
 // Apply routes one Detection to its policy path and returns the packet the
@@ -52,11 +72,9 @@ func (d *Dispatcher) Apply(playerUUID string, det meta.Detection, m *meta.Detect
 	case meta.PolicyKick:
 		return d.applyKick(playerUUID, det, m, original)
 	case meta.PolicyClientRubberband:
-		// Structural hook; wiring lands in 2.M.3.
-		return original, false
+		return d.applyRubberband(playerUUID, original)
 	case meta.PolicyServerFilter:
-		// Structural hook; wiring lands in 2.M.4.
-		return original, false
+		return d.applyServerFilter(playerUUID, original)
 	case meta.PolicyNone:
 		return original, false
 	default:
@@ -65,6 +83,36 @@ func (d *Dispatcher) Apply(playerUUID string, det meta.Detection, m *meta.Detect
 			"player", playerUUID, "check", det.Type()+"/"+det.SubType(), "policy", policy)
 		return original, false
 	}
+}
+
+// applyRubberband invokes the session's rubberband hook. The returned
+// packet is the original (unchanged) because the rubberband is an
+// out-of-band corrective packet sent by the proxy — the triggering
+// packet itself continues forward. This matches Oomph's "teleport the
+// client, keep the server canonical" model.
+//
+// Rubberband is rate-limited downstream by the hook itself (typical:
+// once per 20 ticks) to avoid packet-flooding the client.
+func (d *Dispatcher) applyRubberband(playerUUID string, original packet.Packet) (packet.Packet, bool) {
+	if d.rubber == nil {
+		d.log.Warn("rubberband suppressed — no hook configured", "player", playerUUID)
+		return original, false
+	}
+	d.rubber(playerUUID)
+	return original, false
+}
+
+// applyServerFilter delegates to the filter hook which may rewrite or
+// drop the packet. Returning (nil, false) from the hook means the
+// packet is dropped entirely — the server never sees the cheated input.
+// Returning the packet (mutated or not) means "forward this instead".
+func (d *Dispatcher) applyServerFilter(playerUUID string, original packet.Packet) (packet.Packet, bool) {
+	if d.filter == nil {
+		d.log.Warn("server filter suppressed — no hook configured", "player", playerUUID)
+		return original, false
+	}
+	forwarded := d.filter(playerUUID, original)
+	return forwarded, false
 }
 
 // applyKick logs the violation and, when MaxViolations is exceeded, triggers

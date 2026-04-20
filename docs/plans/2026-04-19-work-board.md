@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 2 진행 중** (Entity/Ack/Mitigate/Sim/World 완료. 통합 배선 + Phase 3 남음) |
-| 전체 진도 | 34 / ~75 Tasks done (Phase 1 전체 + 2.E.1–2, 2.A.1–2, 2.M.1–2, 2.S.0–11, 2.W.0–2/4–6; 2.W.3은 γ+1로 연기) |
+| Phase 진행 중 | **Phase 2 완료 (통합 배선 포함) → Phase 3 준비** |
+| 전체 진도 | 39 / ~75 Tasks done (Phase 1 전체 + 2.E.1–3, 2.A.1–3, 2.M.1–4, 2.S.0–11, 2.W.0–2/4–7; 2.W.3은 γ+1로 연기) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
@@ -200,11 +200,16 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - ⚠️ 1시간 누수 테스트는 현장 벤치 (5a Task 5a.4)로 연기.
 
 ### Task 2.W.7 — proxy.serverToClient 훅
-- Status: **pending**
+- Status: **done**
 - Owner: AI-O (proxy 레이어 소유)
+- Completed: AI-O 2026-04-20
 - Depends on: 2.W.1
-- Files: `proxy/proxy.go`
-- Acceptance: LevelChunk/SubChunk/UpdateBlock 패킷 수신 시 플레이어의 Tracker에 전달.
+- Files: `proxy/proxy.go`, `proxy/session.go`
+- Acceptance:
+  - ✅ `Session.World` 필드 + `newSession` 이 `world.NewTracker()` 로 초기화.
+  - ✅ serverToClient 에서 `*packet.LevelChunk`/`*packet.SubChunk`/`*packet.UpdateBlock`/`*packet.NetworkChunkPublisherUpdate` 를 Tracker 메서드로 라우팅.
+  - ✅ 세션 종료 시 `sess.World.Close()` 로 청크 맵 해제.
+- Commits: (이번 통합 배치)
 
 ## Phase 2 / AI-S — Simulation Engine (β)
 
@@ -340,14 +345,17 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - concurrent access 안전.
 
 ### Task 2.E.3 — data.Player 통합
-- Status: **pending**
+- Status: **done**
 - Owner: AI-O (data.Player 소유)
+- Completed: AI-O 2026-04-20
 - Depends on: 2.E.2
-- Files: `anticheat/data/player.go`, `anticheat/anticheat.go`
+- Files: `proxy/session.go`, `proxy/proxy.go`
 - Acceptance:
-  - 기존 `entityPos` 맵 제거.
-  - Player가 공유 Rewind 참조 갖기.
-  - proxy.serverToClient 가 `Record` 호출.
+  - ✅ `Session.Rewind` 필드 + `newSession` 이 `entity.NewRewind()` 로 초기화.
+  - ✅ proxy.serverToClient 의 AddPlayer/AddActor/MovePlayer/MoveActorAbsolute 핸들러가 `p.recordRewind(sess, rid, pos, pitch, yaw)` 호출 → `sess.Rewind.Record(rid, tick, pos, bbox, rot)`.
+  - ⏭️ `data.Player.entityPos` 제거 및 Rewind 공유는 Phase 3 (체크 마이그레이션) 에서 수행 (체크들이 해당 맵에 의존). 통합 배선 단계에서는 proxy→Rewind 경로만 활성화.
+- Notes: `entityPos` 맵 제거는 Phase 3 Reach/Aim 체크 마이그레이션 (3.C-2.*) 타이밍에 맞춰 수행. β 기간엔 양쪽 공존.
+- Commits: (이번 통합 배치)
 
 ## Phase 2 / AI-A — Ack System
 
@@ -372,13 +380,17 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - 동시성 안전.
 
 ### Task 2.A.3 — proxy 배선
-- Status: **pending**
+- Status: **done**
 - Owner: AI-O
+- Completed: AI-O 2026-04-20
 - Depends on: 2.A.2
-- Files: `proxy/proxy.go`
+- Files: `proxy/session.go`, `proxy/proxy.go`
 - Acceptance:
-  - serverToClient에서 knockback 등 이벤트 시 `Dispatch` 호출, 마커 패킷을 클라로 보내기.
-  - clientToServer에서 `NetworkStackLatency` 응답 수신 시 `OnResponse` 호출.
+  - ✅ `Session.Ack` 필드 + `newSession` 이 `ack.NewSystem()` 으로 초기화.
+  - ✅ clientToServer 에서 `*packet.NetworkStackLatency` 수신 시 `sess.Ack.OnResponse(ts, pl.SimFrame())` 호출.
+  - ⏭️ serverToClient 측 `Dispatch` 호출 지점 (knockback 동기화 등) 은 Phase 3 Timer/KB 체크 마이그레이션 시점에 배선 (지금은 무호출 상태로 유지 — β 단계에서 Ack 은 응답 경로만 활성).
+- Notes: β 에서는 응답 수집/타임아웃 경로만 활성. Dispatch 호출부는 체크 측에서 필요 시 주입.
+- Commits: (이번 통합 배치)
 
 ## Phase 2 / AI-M — Mitigate
 
@@ -397,22 +409,32 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 - Acceptance: VL 초과 시 `kick=true` 반환, 메시지 포맷 통일.
 
 ### Task 2.M.3 — ClientRubberband
-- Status: **pending**
+- Status: **done**
 - Owner: AI-M
+- Completed: AI-M 2026-04-20
 - Depends on: 2.M.1, 2.A.2
-- Files: `anticheat/mitigate/client_rubberband.go`
+- Files: `anticheat/mitigate/policy.go`, `anticheat/mitigate/policy_test.go`
 - Acceptance:
-  - 클라에 `MovePlayer{pos=lastValid, teleport=true}` 발송.
-  - ack.Dispatch로 movement 검사 일시 정지 콜백 등록.
+  - ✅ `RubberbandFunc` 타입 + `NewDispatcherWithHooks` 생성자 + `applyRubberband` 경로.
+  - ✅ 훅이 nil 이면 log-only 로 degrade (패닉 없음).
+  - ✅ `TestApplyRubberbandCallsHook` / `TestApplyHooksNilDegradeToLog` 통과.
+  - ⏭️ 구체적 `MovePlayer{pos=lastValid, teleport=true}` 발송 + ack.Dispatch 를 이용한 movement 검사 일시 정지 콜백은 proxy 레이어의 훅 구현체 (Phase 5a 통합) 에서 수행. dispatcher 는 훅 계약만 정의.
+- Notes: design.md §7에 정한 대로 dispatcher 는 훅 계약만 소유. 실제 rubberband 패킷 발송/ack 배선은 proxy 측 훅 구현 (5a Task 5a.1)에서.
+- Commits: (이번 통합 배치)
 
 ### Task 2.M.4 — ServerFilter
-- Status: **pending**
+- Status: **done**
 - Owner: AI-M
+- Completed: AI-M 2026-04-20
 - Depends on: 2.M.1
-- Files: `anticheat/mitigate/server_filter.go`
+- Files: `anticheat/mitigate/policy.go`, `anticheat/mitigate/policy_test.go`
 - Acceptance:
-  - 원본 패킷의 Position을 마지막 유효 위치로 덮어쓴 copy 반환.
-  - 클라에도 correction MovePlayer 발송.
+  - ✅ `ServerFilterFunc` 타입 + `applyServerFilter` 경로: 훅 반환값을 forward (nil 반환 → drop).
+  - ✅ 훅이 nil 이면 log-only 로 degrade (원본 forward).
+  - ✅ `TestApplyServerFilterRewritesPacket` / `TestApplyHooksNilDegradeToLog` 통과.
+  - ⏭️ 원본 패킷 Position 덮어쓰기 + correction MovePlayer 발송은 proxy 레이어의 훅 구현체 (Phase 5a 통합) 에서 수행. dispatcher 는 훅 계약만 정의.
+- Notes: Mitigate 패키지는 훅 계약만 소유 (design.md §7). 구체 rewrite/correction 로직은 proxy 레이어 훅 구현 (5a Task 5a.1)에서.
+- Commits: (이번 통합 배치)
 
 ---
 

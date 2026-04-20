@@ -83,6 +83,60 @@ func TestApplyNonKickPoliciesForwardUnchanged(t *testing.T) {
 	}
 }
 
+func TestApplyRubberbandCallsHook(t *testing.T) {
+	var rubbed string
+	d := NewDispatcherWithHooks(silentLogger(), nil,
+		func(uuid string) { rubbed = uuid },
+		nil)
+	det := fakeDetection{typ: "Fly", sub: "A", punishable: true, policy: meta.PolicyClientRubberband}
+	md := &meta.DetectionMetadata{Violations: 6, MaxViolations: 5}
+	pk := &packet.MovePlayer{}
+
+	fwd, kick := d.Apply("player-42", det, md, pk)
+	if rubbed != "player-42" {
+		t.Fatalf("rubberband hook not called, got %q", rubbed)
+	}
+	if kick {
+		t.Fatal("rubberband must not kick")
+	}
+	if fwd != pk {
+		t.Fatal("rubberband forwards the triggering packet unchanged")
+	}
+}
+
+func TestApplyServerFilterRewritesPacket(t *testing.T) {
+	replacement := &packet.MovePlayer{}
+	d := NewDispatcherWithHooks(silentLogger(), nil, nil,
+		func(uuid string, original packet.Packet) packet.Packet { return replacement })
+	det := fakeDetection{typ: "Speed", sub: "A", punishable: true, policy: meta.PolicyServerFilter}
+	md := &meta.DetectionMetadata{Violations: 6, MaxViolations: 5}
+
+	fwd, kick := d.Apply("player-7", det, md, &packet.MovePlayer{})
+	if kick {
+		t.Fatal("server-filter must not kick")
+	}
+	if fwd != replacement {
+		t.Fatal("server-filter should forward the rewritten packet")
+	}
+}
+
+func TestApplyHooksNilDegradeToLog(t *testing.T) {
+	d := NewDispatcher(silentLogger(), nil) // no rubber / filter
+	md := &meta.DetectionMetadata{Violations: 10, MaxViolations: 5}
+	pk := &packet.MovePlayer{}
+
+	for _, pol := range []meta.MitigatePolicy{meta.PolicyClientRubberband, meta.PolicyServerFilter} {
+		det := fakeDetection{typ: "X", sub: "Y", punishable: true, policy: pol}
+		fwd, kick := d.Apply("p", det, md, pk)
+		if kick {
+			t.Fatalf("policy %v: nil hook must not kick", pol)
+		}
+		if fwd != pk {
+			t.Fatalf("policy %v: nil hook must forward original", pol)
+		}
+	}
+}
+
 func TestPolicyNameMapping(t *testing.T) {
 	cases := map[meta.MitigatePolicy]string{
 		meta.PolicyNone:             "none",

@@ -8,7 +8,9 @@ import (
 
 	"github.com/boredape874/Better-pm-AC/anticheat"
 	"github.com/boredape874/Better-pm-AC/config"
+	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/go-gl/mathgl/mgl32"
+	"github.com/go-gl/mathgl/mgl64"
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
@@ -111,6 +113,14 @@ func (p *Proxy) handleClient(ctx context.Context, client *minecraft.Conn) {
 	if err := <-errc; err != nil {
 		p.log.Info("session ended", "username", username, "err", err)
 	}
+
+	// Release per-session state. World holds decoded chunks (potentially
+	// MBs), so letting it outlive the session would leak memory across
+	// reconnects. Rewind and Ack don't own significant memory but closing
+	// is cheap and symmetric.
+	if sess.World != nil {
+		_ = sess.World.Close()
+	}
 }
 
 // clientToServer reads packets from the client, runs anti-cheat checks, and
@@ -123,6 +133,16 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 		}
 
 		switch typed := pk.(type) {
+
+		// NetworkStackLatency: round-trip ack for markers dispatched via
+		// sess.Ack. The client echoes the timestamp we sent in response
+		// to its corresponding request. We invoke the callback with the
+		// current SimFrame so checks can correlate "client confirmed it
+		// processed tick N".
+		case *packet.NetworkStackLatency:
+			if pl := p.ac.GetPlayer(sess.ID); pl != nil && sess.Ack != nil {
+				sess.Ack.OnResponse(typed.Timestamp, pl.SimFrame())
+			}
 
 		// PlayerAuthInput: primary movement + rotation packet.
 		case *packet.PlayerAuthInput:
@@ -297,6 +317,29 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 		// supplied by the attacking client.
 		switch typed := pk.(type) {
 
+		// World state: LevelChunk / SubChunk / UpdateBlock feed the
+		// per-session anticheat/world.Tracker. Errors are logged but
+		// don't break forwarding — a decode failure on one chunk should
+		// not disconnect the player.
+		case *packet.LevelChunk:
+			if err := sess.World.HandleLevelChunk(typed); err != nil {
+				p.log.Debug("world: level chunk", "err", err, "pos", typed.Position)
+			}
+
+		case *packet.SubChunk:
+			if err := sess.World.HandleSubChunk(typed); err != nil {
+				p.log.Debug("world: sub chunk", "err", err)
+			}
+
+		case *packet.UpdateBlock:
+			pos := cubePosFromBlockPos(typed.Position)
+			if err := sess.World.HandleBlockUpdate(pos, typed.NewBlockRuntimeID); err != nil {
+				p.log.Debug("world: update block", "err", err, "pos", pos)
+			}
+
+		case *packet.NetworkChunkPublisherUpdate:
+			sess.World.HandleChunkPublisher(typed)
+
 		case *packet.AddPlayer:
 			// A new player entity has spawned. Store its initial position.
 			// AddPlayer carries feet-level coordinates — no eye-height
@@ -304,6 +347,7 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 			// PlayerAuthInput IS eye-level, hence the subtraction there, but
 			// server-sent entity positions are already feet-level).
 			p.ac.UpdateEntityPos(sess.ID, typed.EntityRuntimeID, typed.Position)
+			p.recordRewind(sess, typed.EntityRuntimeID, typed.Position, typed.Pitch, typed.HeadYaw)
 
 		case *packet.AddActor:
 			// A new non-player actor has spawned.
@@ -311,15 +355,18 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 			// Also store the uniqueID→runtimeID mapping so RemoveActor can
 			// clean up this entity from the table.
 			p.ac.MapEntityUID(sess.ID, typed.EntityUniqueID, typed.EntityRuntimeID)
+			p.recordRewind(sess, typed.EntityRuntimeID, typed.Position, typed.Pitch, typed.HeadYaw)
 
 		case *packet.MovePlayer:
 			// An existing player entity has moved. MovePlayer (server→client)
 			// carries feet-level coordinates — no eye-height adjustment needed.
 			p.ac.UpdateEntityPos(sess.ID, typed.EntityRuntimeID, typed.Position)
+			p.recordRewind(sess, typed.EntityRuntimeID, typed.Position, typed.Pitch, typed.HeadYaw)
 
 		case *packet.MoveActorAbsolute:
 			// An existing non-player entity has moved.
 			p.ac.UpdateEntityPos(sess.ID, typed.EntityRuntimeID, typed.Position)
+			p.recordRewind(sess, typed.EntityRuntimeID, typed.Position, typed.Rotation[0], typed.Rotation[1])
 
 		case *packet.MoveActorDelta:
 			// MoveActorDelta is the bandwidth-optimised variant of MoveActorAbsolute
@@ -338,6 +385,12 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 		case *packet.RemoveActor:
 			// An entity has been removed from the world; clean up the table.
 			p.ac.RemoveEntity(sess.ID, typed.EntityUniqueID)
+			// Rewind is keyed by runtimeID, not uniqueID — we'd need the
+			// uid→rid map to purge cleanly. For β the ring buffer is fixed
+			// size per rid and orphaned entries age out naturally; leaving
+			// the purge unwired saves a lookup on every RemoveActor. γ
+			// wires the purge once the integration bench shows memory
+			// growth on long sessions.
 
 		case *packet.SetPlayerGameType:
 			// The server changed the player's game mode. Record it so checks
@@ -445,4 +498,45 @@ func uuidFromEntityRID(_ *Session, rid uint64) uuid.UUID {
 		id[i] = byte(rid >> (i * 8))
 	}
 	return id
+}
+
+// cubePosFromBlockPos converts a gophertunnel protocol.BlockPos (int32 x/y/z)
+// to a dragonfly cube.Pos (int x/y/z). The cast is safe on 64-bit hosts and
+// necessary because anticheat/world uses cube.Pos throughout (reused from
+// Dragonfly's block model APIs).
+func cubePosFromBlockPos(b protocol.BlockPos) cube.Pos {
+	return cube.Pos{int(b[0]), int(b[1]), int(b[2])}
+}
+
+// recordRewind pushes a single entity snapshot into the per-session rewind
+// ring buffer. Called from every entity-move packet handler.
+//
+// The tick used is the attacker's most recent SimulationFrame (tracked on
+// the data.Player). This couples rewind to the player's own input tick
+// rather than wall-clock — checks later rewind to tick - (latency ticks)
+// to reconstruct the pose the attacker saw at attack time.
+//
+// The BBox is a default 0.6×1.8 box because server-sent entity packets
+// don't carry the actual collider dimensions. A γ improvement is to read
+// MobEquipment / ActorFlagData to size per entity type (e.g. 0.9×0.9 for
+// slimes). β uses the player-box as a reasonable default.
+func (p *Proxy) recordRewind(sess *Session, rid uint64, pos mgl32.Vec3, pitch, yaw float32) {
+	if sess.Rewind == nil {
+		return
+	}
+	pl := p.ac.GetPlayer(sess.ID)
+	if pl == nil {
+		return
+	}
+	tick := pl.SimFrame()
+	bbox := cube.Box(-0.3, 0, -0.3, 0.3, 1.8, 0.3).Translate(mgl32toVec64(pos))
+	sess.Rewind.Record(rid, tick, pos, bbox, mgl32.Vec2{yaw, pitch})
+}
+
+// mgl32toVec64 converts an mgl32.Vec3 to a dragonfly mgl64.Vec3 — needed
+// because cube.BBox.Translate takes mgl64. Duplicated from
+// anticheat/sim/math.go rather than imported to avoid a proxy→sim
+// dependency (the proxy shouldn't care how the sim models physics).
+func mgl32toVec64(v mgl32.Vec3) mgl64.Vec3 {
+	return mgl64.Vec3{float64(v[0]), float64(v[1]), float64(v[2])}
 }
