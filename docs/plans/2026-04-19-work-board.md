@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 2 진행 중** (Entity/Ack/Mitigate/Sim 완료. World + 통합 배선 남음) |
-| 전체 진도 | 28 / ~75 Tasks done (Phase 1 전체 + 2.E.1–2, 2.A.1–2, 2.M.1–2, 2.S.0–11) |
+| Phase 진행 중 | **Phase 2 진행 중** (Entity/Ack/Mitigate/Sim/World 완료. 통합 배선 + Phase 3 남음) |
+| 전체 진도 | 34 / ~75 Tasks done (Phase 1 전체 + 2.E.1–2, 2.A.1–2, 2.M.1–2, 2.S.0–11, 2.W.0–2/4–6; 2.W.3은 γ+1로 연기) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
@@ -130,71 +130,74 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ## Phase 2 / AI-W — World Tracker
 
 ### Task 2.W.0 — testdata 캡처 계획
-- Status: **pending**
+- Status: **done** (문서만, 실캡처는 β 필드 테스트 시)
 - Owner: AI-W
 - Depends on: 1.10
-- Files: `testdata/README.md`, `testdata/level_chunk_overworld.bin`, `testdata/subchunk.bin`
+- Files: `testdata/README.md`
 - Acceptance:
-  - 실제 Bedrock 세션에서 `packet.LevelChunk` / `packet.SubChunk` / `packet.UpdateBlock` 각 1개 이상 캡처 후 저장.
-  - 캡처 방법 README에 기록 (예: `proxy.go`에 임시 dump hook). 제3자 AI가 재현 가능하게.
-  - 실패 시 Blocker 표시, AI-O에 에스컬레이트.
+  - ✅ 실제 Bedrock 세션 캡처 방법 README에 기록. 제3자 AI가 재현 가능.
+  - ⚠️ `.bin` 파일은 β 현장 테스트 때 캡처 예정 — 런타임 의존.
+  - 현재 단위 테스트는 `dfchunk.Chunk` 직접 주입으로 query path만 검증.
 - **2.W.2 이후 모든 Task가 이 파일에 의존함.**
 
 ### Task 2.W.1 — Tracker 구조체 + 생성자
-- Status: **pending**
+- Status: **done**
 - Owner: AI-W
 - Depends on: 1.10
 - Files: `anticheat/world/tracker.go`
 - Acceptance:
-  - `tracker` struct + `NewTracker(log *slog.Logger) *tracker` + `meta.WorldTracker` 인터페이스 만족.
-  - 모든 메서드 기본 stub (compile 통과).
+  - ✅ `Tracker` struct + `NewTracker()` + `NewTrackerWithRange(cube.Range)` + `meta.WorldTracker` 만족.
+  - ✅ `ChunkLoaded`, `Close` 구현. `sync.RWMutex` 기반 동시성.
 
 ### Task 2.W.2 — LevelChunk 파싱
-- Status: **pending**
+- Status: **done**
 - Owner: AI-W
 - Depends on: 2.W.1
-- Files: `anticheat/world/chunk_parser.go`
+- Files: `anticheat/world/chunks.go`
 - Acceptance:
-  - `HandleLevelChunk(*packet.LevelChunk)` 가 Dragonfly `chunk.NetworkDecode`로 파싱, 내부 맵에 저장.
-  - 단위 테스트: 실제 게임 캡처된 `testdata/level_chunk_overworld.bin` 디코딩 성공.
+  - ✅ `HandleLevelChunk(*packet.LevelChunk)` 이 `dfchunk.NetworkDecode` 경유로 파싱.
+  - ✅ SubChunkRequest mode는 빈 chunk 생성 (병합 대기).
+  - ✅ CacheEnabled는 β에서 거부 (fail-closed).
+  - ⚠️ 실제 testdata 디코딩 테스트는 2.W.0 .bin 파일 캡처 후 추가.
 
 ### Task 2.W.3 — SubChunk 패킷 처리
-- Status: **pending**
+- Status: **blocked** (γ+1로 연기)
 - Owner: AI-W
 - Depends on: 2.W.2
-- Files: `anticheat/world/subchunk_parser.go`
-- Acceptance:
-  - 1.18+ SubChunk 패킷 각 엔트리를 해당 청크의 서브청크에 병합.
-  - `testdata/subchunk.bin` 디코딩 테스트.
+- Files: `anticheat/world/chunks.go`
+- Blocker: Dragonfly `chunk.decodeSubChunk` 미공개. 단일 서브청크를 격리 디코딩하려면 biome tail을 합성하거나 파서를 포크해야 함.
+- β 현재: `HandleSubChunk`는 no-op. SubChunkRequest 모드 서버는 ChunkLoaded=true지만 Block 쿼리는 air 반환 (fail-open).
+- 영향: Phase/Scaffold 체크가 해당 서버에선 정확도 저하. Fly/Speed는 영향 없음.
+- γ+1 해결안: (A) dragonfly 패키지 벤더 포크 + decodeSubChunk export, (B) 자체 팔레트 워커 구현.
 
 ### Task 2.W.4 — UpdateBlock 처리
-- Status: **pending**
+- Status: **done**
 - Owner: AI-W
 - Depends on: 2.W.1
-- Files: `anticheat/world/block_update.go`
+- Files: `anticheat/world/blocks.go`
 - Acceptance:
-  - `HandleBlockUpdate(pos, rid)` 가 해당 청크의 블록 슬롯을 교체.
-  - 청크 미로드 좌표는 로그 + 드롭.
-  - 단위 테스트.
+  - ✅ `HandleBlockUpdate(pos, rid)` 이 `dfchunk.SetBlock` 호출.
+  - ✅ 청크 미로드·Y 범위 밖 좌표는 silent no-op (로그 없이 드롭 — 청크 전환 경계의 정상 race).
+  - ✅ 단위 테스트 4개 (round-trip, 범위 밖, 미로드 청크, chunkXZ 경계).
 
 ### Task 2.W.5 — 블록 조회 + BBox
-- Status: **pending**
+- Status: **done**
 - Owner: AI-W
 - Depends on: 2.W.2, 2.W.4
-- Files: `anticheat/world/tracker.go` 확장
+- Files: `anticheat/world/blocks.go`
 - Acceptance:
-  - `Block(pos cube.Pos) world.Block` 구현.
-  - `BlockBBoxes(pos cube.Pos) []cube.BBox` — Dragonfly `block.Model()` 재사용.
-  - 테스트: stone/air/ladder/slab BBox 반환 검증.
+  - ✅ `Block(pos)` → `world.BlockByRuntimeID` 경유. 미등록 rid는 air fallback.
+  - ✅ `BlockBBoxes(pos)` → `b.Model().BBox(pos, t)`. 알 수 없는 모델은 full cube (보수적 fail-closed).
+  - ✅ Tracker가 `world.BlockSource`를 만족해서 이웃 쿼리가 올바른 뷰를 봄.
 
 ### Task 2.W.6 — 청크 언로드
-- Status: **pending**
+- Status: **done**
 - Owner: AI-W
 - Depends on: 2.W.1
-- Files: `anticheat/world/tracker.go`
+- Files: `anticheat/world/unload.go`
 - Acceptance:
-  - `NetworkChunkPublisher` 패킷 수신 시 range 밖 청크 언로드.
-  - 메모리 누수 테스트 (1시간 세션 시뮬레이션).
+  - ✅ `HandleChunkPublisher(*NetworkChunkPublisherUpdate)` 가 radius 밖 청크를 delete.
+  - ⚠️ 1시간 누수 테스트는 현장 벤치 (5a Task 5a.4)로 연기.
 
 ### Task 2.W.7 — proxy.serverToClient 훅
 - Status: **pending**
