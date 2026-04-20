@@ -10,7 +10,13 @@ import (
 	"github.com/boredape874/Better-pm-AC/config"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/google/uuid"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
+
+// fakeBitset implements interface{ Load(int) bool } for BadPacket/E tests.
+type fakeBitset map[int]bool
+
+func (f fakeBitset) Load(bit int) bool { return f[bit] }
 
 // --- BadPacket/B: pitch range ---
 
@@ -148,6 +154,150 @@ func TestBadPacketDNaNAndInfFlag(t *testing.T) {
 
 func TestBadPacketDPolicyContract(t *testing.T) {
 	c := NewBadPacketDCheck(config.BadPacketDConfig{Enabled: true, Policy: "kick", Violations: 5})
+	if c.Policy() != meta.PolicyKick {
+		t.Fatalf("want PolicyKick, got %v", c.Policy())
+	}
+}
+
+// --- BadPacket/A: tick transitions ---
+
+func newBadPacketACheck() *BadPacketCheck {
+	return NewBadPacketCheck(config.BadPacketConfig{Enabled: true, Policy: "kick", Violations: 1})
+}
+
+func TestBadPacketAFirstPacketGraceDoesNotFlag(t *testing.T) {
+	p := data.NewPlayer(uuid.New(), "tester")
+	// prev == 0 (never UpdateTick'd) — all branches are gated on prev != 0.
+	c := newBadPacketACheck()
+	if flagged, _ := c.Check(p, 0); flagged {
+		t.Fatal("first-packet tick=0 flagged")
+	}
+	if flagged, _ := c.Check(p, 100); flagged {
+		t.Fatal("first-packet tick=100 flagged")
+	}
+}
+
+func TestBadPacketAMonotonicDoesNotFlag(t *testing.T) {
+	p := data.NewPlayer(uuid.New(), "tester")
+	p.UpdateTick(50)
+	c := newBadPacketACheck()
+	if flagged, _ := c.Check(p, 51); flagged {
+		t.Fatal("monotonic tick=prev+1 flagged")
+	}
+	if flagged, _ := c.Check(p, 200); flagged {
+		t.Fatal("large-but-under-jump tick=prev+150 flagged")
+	}
+}
+
+func TestBadPacketATickResetFlags(t *testing.T) {
+	p := data.NewPlayer(uuid.New(), "tester")
+	p.UpdateTick(50)
+	c := newBadPacketACheck()
+	flagged, info := c.Check(p, 0)
+	if !flagged {
+		t.Fatal("tick reset did not flag")
+	}
+	if info != "tick_reset" {
+		t.Fatalf("want info=tick_reset, got %q", info)
+	}
+}
+
+func TestBadPacketATickRegressionFlags(t *testing.T) {
+	p := data.NewPlayer(uuid.New(), "tester")
+	p.UpdateTick(50)
+	c := newBadPacketACheck()
+	flagged, info := c.Check(p, 20)
+	if !flagged {
+		t.Fatal("tick regression did not flag")
+	}
+	if !strings.Contains(info, "tick_regression") {
+		t.Fatalf("info missing tick_regression: %q", info)
+	}
+}
+
+func TestBadPacketATickJumpFlags(t *testing.T) {
+	p := data.NewPlayer(uuid.New(), "tester")
+	p.UpdateTick(100)
+	c := newBadPacketACheck()
+	flagged, info := c.Check(p, 400) // diff = 300 > 200
+	if !flagged {
+		t.Fatal("tick jump did not flag")
+	}
+	if !strings.Contains(info, "tick_jump") {
+		t.Fatalf("info missing tick_jump: %q", info)
+	}
+}
+
+func TestBadPacketAPolicyContract(t *testing.T) {
+	c := newBadPacketACheck()
+	if c.Policy() != meta.PolicyKick {
+		t.Fatalf("want PolicyKick, got %v", c.Policy())
+	}
+}
+
+// --- BadPacket/E: contradictory flag pairs ---
+
+func newBadPacketECheck() *BadPacketECheck {
+	return NewBadPacketECheck(config.BadPacketEConfig{Enabled: true, Policy: "kick", Violations: 1})
+}
+
+func TestBadPacketELegalFlagsDoesNotFlag(t *testing.T) {
+	// Only StartSprinting set — no contradiction.
+	bits := fakeBitset{packet.InputFlagStartSprinting: true}
+	c := newBadPacketECheck()
+	if flagged, info := c.Check(bits); flagged {
+		t.Fatalf("legal flags flagged: %s", info)
+	}
+}
+
+func TestBadPacketESprintPairFlags(t *testing.T) {
+	bits := fakeBitset{
+		packet.InputFlagStartSprinting: true,
+		packet.InputFlagStopSprinting:  true,
+	}
+	c := newBadPacketECheck()
+	flagged, info := c.Check(bits)
+	if !flagged {
+		t.Fatal("sprint start+stop did not flag")
+	}
+	if !strings.Contains(info, "start+stop_sprint") {
+		t.Fatalf("info missing start+stop_sprint: %q", info)
+	}
+}
+
+func TestBadPacketEMultiplePairsInOneInfo(t *testing.T) {
+	bits := fakeBitset{
+		packet.InputFlagStartSprinting: true,
+		packet.InputFlagStopSprinting:  true,
+		packet.InputFlagStartSneaking:  true,
+		packet.InputFlagStopSneaking:   true,
+	}
+	c := newBadPacketECheck()
+	flagged, info := c.Check(bits)
+	if !flagged {
+		t.Fatal("double contradiction did not flag")
+	}
+	if !strings.Contains(info, "start+stop_sprint") || !strings.Contains(info, "start+stop_sneak") {
+		t.Fatalf("info missing one of the pairs: %q", info)
+	}
+	if !strings.Contains(info, ",") {
+		t.Fatalf("info missing comma separator: %q", info)
+	}
+}
+
+func TestBadPacketEDisabledSkips(t *testing.T) {
+	bits := fakeBitset{
+		packet.InputFlagStartSprinting: true,
+		packet.InputFlagStopSprinting:  true,
+	}
+	c := NewBadPacketECheck(config.BadPacketEConfig{Enabled: false, Policy: "kick", Violations: 1})
+	if flagged, _ := c.Check(bits); flagged {
+		t.Fatal("disabled check still flagged")
+	}
+}
+
+func TestBadPacketEPolicyContract(t *testing.T) {
+	c := newBadPacketECheck()
 	if c.Policy() != meta.PolicyKick {
 		t.Fatalf("want PolicyKick, got %v", c.Policy())
 	}

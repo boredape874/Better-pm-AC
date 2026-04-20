@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 3 Movement 절반 + Combat 6/11 + Packet 3/5 완료** |
-| 전체 진도 | 52 + 5a.1 부분 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate + 3.C1.{1,3,6,7,14,15} β + 3.C2.{1,3,4,5,7,10} β + 3.C3.{2,3,4} β; 2.W.3은 γ+1로 연기) |
+| Phase 진행 중 | **Phase 3 Movement 절반 + Combat 6/11 + Packet 5/5 완료** |
+| 전체 진도 | 54 + 5a.1 부분 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate + 3.C1.{1,3,6,7,14,15} β + 3.C2.{1,3,4,5,7,10} β + 3.C3.{1-5} β; 2.W.3은 γ+1로 연기) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
@@ -606,16 +606,17 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ## Phase 3 / AI-C-3 — Packet 체크
 
 ### Task 3.C3.1 ~ 3.C3.5 — BadPacket/A~E 유지 (Policy 추가)
-- Status: **partially done (β: BadPacket/B,C,D 단위테스트 + 통합 스펙; A/E 는 다음 배치)**
+- Status: **done (β: 전체 서브체크 스펙+단위테스트 완료)**
 - Owner: AI-C-3
-- Completed (부분): AI-C-3 2026-04-20
+- Completed: AI-C-3 2026-04-21
 - Depends on: 1.10 (Policy enum 이미 배선됨)
-- Files: `docs/check-specs/packet-badpacket-bcd.md`, `anticheat/checks/packet/badpacket_test.go`
+- Files: `docs/check-specs/packet-badpacket-a.md`, `docs/check-specs/packet-badpacket-bcd.md`, `docs/check-specs/packet-badpacket-e.md`, `anticheat/checks/packet/badpacket_test.go`
 - Acceptance:
+  - ✅ BadPacket/A (tick validation) 단위테스트 6종.
   - ✅ BadPacket/B (pitch 범위) · /C (sprint+sneak) · /D (NaN/Inf) 단위테스트 10종.
-  - ✅ 세 서브체크 통합 스펙 문서.
+  - ✅ BadPacket/E (contradictory start+stop flags) 단위테스트 5종.
+  - ✅ 서브체크별 / 통합 스펙 문서 3건.
   - ✅ 각 체크 `Policy()` 반환 Kick 확인.
-  - ⏭️ BadPacket/A (tick validation) + /E (contradictory flags) 단위테스트는 다음 배치에서 추가.
 ### Task 3.C3.6 — BadPacket/F 신규 (누락 플래그)
 - Status: **pending**
 ### Task 3.C3.7 — BadPacket/G 신규 (패킷 순서)
