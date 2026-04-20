@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 3 Movement 절반 + Combat 6/11 + Packet 5/5 완료** |
-| 전체 진도 | 54 + 5a.1 부분 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate + 3.C1.{1,3,6,7,14,15} β + 3.C2.{1,3,4,5,7,10} β + 3.C3.{1-5} β; 2.W.3은 γ+1로 연기) |
+| Phase 진행 중 | **Phase 3 β 완료 (existing 체크 100%); World/Client/Phase 4 spec-done — γ 구현 대기** |
+| 전체 진도 | 54 + spec-done 17 + 5a.1 부분 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate + 3.C1.{1,3,6,7,14,15} β + 3.C2.{1,3,4,5,7,10} β + 3.C3.{1-5} β + 3.C4.{1-7} spec + 3.C5.{1-3} spec + 4.{1-8} spec; 2.W.3은 γ+1로 연기) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
@@ -627,38 +627,34 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 ## Phase 3 / AI-C-4 — World 체크 (신규 카테고리)
 
 ### Task 3.C4.0 — `feat/scaffold-dtc` 딥다이브
-- Status: **pending**
+- Status: **pending** · Depends on: 1.10
 - Owner: AI-C-4
-- Depends on: 1.10
-- Files: `docs/check-specs/world-scaffold-a.md`
-- Acceptance:
-  - `basicengine92-tech/oomph` 의 `feat/scaffold-dtc` 브랜치 36개 커밋 전수 조사.
-  - 알고리즘 요약, 채택할 idea와 거르는 idea 구분, 오탐 방지 장치.
-  - 이 문서 없이는 3.C4.1 시작 금지.
+- Files: `docs/check-specs/world-scaffold-a.md` (별도; 통합 스펙은 world-block-checks.md 참조)
 
-### Task 3.C4.1 — Scaffold/A 개조
-- Status: **pending** · Depends on: 2.W.5, 3.C4.0
-### Task 3.C4.2 — Nuker/A 신규 (다중 블록)
-- Status: **pending** · Depends on: 2.W.5
-### Task 3.C4.3 — Nuker/B 신규 (범위)
-- Status: **pending** · Depends on: 2.W.5
-### Task 3.C4.4 — FastBreak/A 신규
-- Status: **pending** · Depends on: 2.W.5
-### Task 3.C4.5 — FastPlace/A 신규
-- Status: **pending**
-### Task 3.C4.6 — Tower/A 신규
-- Status: **pending** · Depends on: 2.W.5
-### Task 3.C4.7 — InvalidBreak/A 신규
-- Status: **pending** · Depends on: 2.W.5
+### Task 3.C4.1 ~ 3.C4.7 — World 체크 통합 스펙
+- Status: **spec-done (γ 구현 대기)**
+- Owner: AI-C-4
+- Completed (스펙): AI-C-4 2026-04-21
+- Depends on: 2.W.5
+- Files: `docs/check-specs/world-block-checks.md`
+- Acceptance (스펙):
+  - ✅ Scaffold/A · Nuker/A+B · FastBreak/A · FastPlace/A · Tower/A · InvalidBreak/A 7종 통합 스펙.
+  - ✅ 각 체크의 detection floor / FailBuffer / Policy 명시.
+  - ✅ 의존성(world tracker · sim engine) 및 open question 정리.
+- Pending (γ): 실제 `anticheat/checks/world/<name>.go` 구현 + 단위 테스트 + Manager 등록.
 
 ## Phase 3 / AI-C-5 — Client 체크 (신규 카테고리)
 
-### Task 3.C5.1 — EditionFaker/A 신규
-- Status: **pending**
-### Task 3.C5.2 — ClientSpoof/A 신규
-- Status: **pending**
-### Task 3.C5.3 — Protocol/A 신규
-- Status: **pending**
+### Task 3.C5.1 ~ 3.C5.3 — Client 체크 통합 스펙
+- Status: **spec-done (γ 구현 대기)**
+- Owner: AI-C-5
+- Completed (스펙): AI-C-5 2026-04-21
+- Files: `docs/check-specs/client-protocol-checks.md`
+- Acceptance (스펙):
+  - ✅ EditionFaker/A · ClientSpoof/A · Protocol/A 통합 스펙.
+  - ✅ Login lifecycle hook 설계 (Manager 신규 hook 필요).
+  - ✅ Fingerprint 테이블 위치 및 갱신 절차.
+- Pending (γ): `anticheat/checks/client/<name>.go` 구현 + Login hook + 단위 테스트.
 
 ---
 
@@ -666,23 +662,16 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 
 **Phase 2 완료 후 착수 가능** (Phase 3 병렬).
 
-### Task 4.1 — 엘리트라 글라이딩
-- Status: **pending** · Depends on: 2.S.11
-- Files: `anticheat/sim/elytra.go`
-### Task 4.2 — 트라이던트 릿프타이드
-- Status: **pending** · Depends on: 2.S.11
-### Task 4.3 — 윈드차지
-- Status: **pending** · Depends on: 2.S.11
-### Task 4.4 — 가루눈 sink/climb
-- Status: **pending** · Depends on: 2.S.5, 2.S.9
-### Task 4.5 — 꿀 블록 슬라이드
-- Status: **pending** · Depends on: 2.S.7
-### Task 4.6 — 거미줄 full slow
-- Status: **pending** · Depends on: 2.S.3, 2.S.5
-### Task 4.7 — 스캐폴딩 블록 sneak/jump
-- Status: **pending** · Depends on: 2.S.9
-### Task 4.8 — 슬라임 바운스 체인
-- Status: **pending** · Depends on: 2.S.6, 2.S.7
+### Task 4.1 ~ 4.8 — γ 물리 확장 통합 스펙
+- Status: **spec-done (구현 대기)**
+- Owner: AI-S
+- Completed (스펙): AI-S 2026-04-21
+- Files: `docs/check-specs/phase4-physics-extensions.md`
+- Acceptance (스펙):
+  - ✅ Elytra · Trident Riptide · Wind Charge · Powder Snow · Honey Block · Cobweb · Scaffolding · Slime Bounce 8종 통합 스펙.
+  - ✅ 각 확장의 SimState 필드 / 알고리즘 / 영향받는 체크 exemption 정리.
+  - ✅ Open questions 문서화 (slow-fall × elytra interaction, riptide in shallow water).
+- Pending (구현): 각 확장의 `anticheat/sim/<name>.go` + 단위 테스트.
 
 ---
 
