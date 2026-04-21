@@ -1,0 +1,49 @@
+# golangci-lint config for Better-pm-AC.
+#
+# Goal: catch real bugs without drowning the dev in style nags. The repo is
+# Go 1.24, server-side, no public API surface yet — so we lean towards bug
+# detectors and away from doc-style enforcement.
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    # Built-in / well-supported bug detectors.
+    - errcheck       # unchecked errors
+    - govet          # `go vet` superset
+    - ineffassign    # unused assignments
+    - staticcheck    # broad correctness checks
+    - unused         # dead code
+    # Quality + safety.
+    - bodyclose      # http.Response.Body must be closed
+    - gosec          # security smell detection
+    - misspell       # typos in comments / strings
+    - unconvert      # redundant type conversions
+    - unparam        # unused function parameters
+    - prealloc       # slice prealloc opportunities
+    # Performance / hot-path.
+    - copyloopvar    # Go 1.22+ loop-var capture
+    - nilerr         # `if err == nil { return err }` mistakes
+
+linters-settings:
+  gosec:
+    excludes:
+      # G104 (errors not checked) overlaps with errcheck and is much noisier;
+      # keep errcheck as the source of truth.
+      - G104
+
+issues:
+  exclude-rules:
+    # Test files often legitimately ignore errors from setup helpers and
+    # construct synthetic data that gosec flags as suspicious.
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        - unparam
+    # Generated / vendored is auto-excluded; nothing custom needed.
+  max-issues-per-linter: 0
+  max-same-issues: 0

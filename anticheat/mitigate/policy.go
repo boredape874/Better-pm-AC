@@ -68,6 +68,12 @@ func (d *Dispatcher) Apply(playerUUID string, det meta.Detection, m *meta.Detect
 		"max", m.MaxViolations,
 		"policy", policyName(policy),
 	)
+	// Aggregate metric: every Apply that reaches a real policy path counts as
+	// a violation (PolicyNone deliberately does not — it represents a logged-
+	// only signal that we explicitly chose not to act on).
+	if policy != meta.PolicyNone {
+		global.violationsTotal.Add(1)
+	}
 	switch policy {
 	case meta.PolicyKick:
 		return d.applyKick(playerUUID, det, m, original)
@@ -95,9 +101,11 @@ func (d *Dispatcher) Apply(playerUUID string, det meta.Detection, m *meta.Detect
 // once per 20 ticks) to avoid packet-flooding the client.
 func (d *Dispatcher) applyRubberband(playerUUID string, original packet.Packet) (packet.Packet, bool) {
 	if d.rubber == nil {
+		global.dryRunSuppressedTotal.Add(1)
 		d.log.Warn("rubberband suppressed — no hook configured", "player", playerUUID)
 		return original, false
 	}
+	global.rubberbandsTotal.Add(1)
 	d.rubber(playerUUID)
 	return original, false
 }
@@ -108,9 +116,11 @@ func (d *Dispatcher) applyRubberband(playerUUID string, original packet.Packet) 
 // Returning the packet (mutated or not) means "forward this instead".
 func (d *Dispatcher) applyServerFilter(playerUUID string, original packet.Packet) (packet.Packet, bool) {
 	if d.filter == nil {
+		global.dryRunSuppressedTotal.Add(1)
 		d.log.Warn("server filter suppressed — no hook configured", "player", playerUUID)
 		return original, false
 	}
+	global.filteredPacketsTotal.Add(1)
 	forwarded := d.filter(playerUUID, original)
 	return forwarded, false
 }
@@ -125,10 +135,12 @@ func (d *Dispatcher) applyKick(playerUUID string, det meta.Detection, m *meta.De
 	}
 	if d.kick == nil {
 		// Dry-run: report the decision but do not tear down the connection.
+		global.dryRunSuppressedTotal.Add(1)
 		d.log.Warn("kick suppressed — no KickFunc configured",
 			"player", playerUUID, "check", det.Type()+"/"+det.SubType())
 		return original, false
 	}
+	global.kicksTotal.Add(1)
 	reason := "Kicked by Better-pm-AC: " + det.Type() + "/" + det.SubType()
 	d.kick(playerUUID, reason)
 	return original, true

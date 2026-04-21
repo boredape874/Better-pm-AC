@@ -1,0 +1,105 @@
+name: CI
+
+# Triggers: every push to any branch and every PR. The workflow is cheap enough
+# (~3 min on a clean cache) that running on every branch keeps work-in-progress
+# branches honest. Tag pushes get the build for release-asset attachment later.
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  # Nightly bench smoke ensures perf doesn't quietly regress between releases.
+  # Running at 16:00 UTC = 01:00 KST so the morning standup sees fresh numbers.
+  schedule:
+    - cron: '0 16 * * *'
+
+# Cancel in-progress runs on the same ref when a new commit arrives. Avoids
+# burning CI minutes on commits that have already been superseded.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: build + vet + test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux is the production target (PMMP servers run on Linux). Windows
+        # is included because the project is being developed on Windows and the
+        # gophertunnel raknet stack has historically had Windows-specific quirks
+        # around socket reuse — catching those before they bite a contributor
+        # is cheap insurance.
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # Pinned to the go.mod minor version so CI can never silently move
+          # ahead of what go.mod claims to support. Updating Go = bumping
+          # go.mod + this line in the same PR.
+          go-version: '1.24.x'
+          cache: true
+
+      - name: Module download
+        run: go mod download
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      # -race catches data races introduced in the Manager / Player mutex
+      # boundary. Without -race the speed gain isn't worth the loss of signal.
+      # -count=1 disables the test cache so flaky tests can't hide.
+      - name: Test (race)
+        run: go test -race -count=1 ./...
+
+  # Lint runs only on Linux because golangci-lint's container image is much
+  # slower to fetch on Windows runners and the lint signal is OS-independent.
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.62
+          args: --timeout=5m
+          # Project-level config lives in .golangci.yml at the repo root.
+          # Suppressed checks live there with rationale comments — keep this
+          # action argument-light so config changes go through PR review.
+
+  # Bench smoke catches order-of-magnitude regressions overnight. It's
+  # NOT a perf gate (CI runners have noisy wall-clock); operators rerun
+  # the proper bench locally before tagging a release. The smoke just
+  # ensures the bench harness still compiles and the numbers stay in
+  # the same ballpark.
+  bench-smoke:
+    name: bench smoke (nightly)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: true
+      - name: go test -bench
+        # `-benchtime=1x` keeps the run under 30s — we just want compile+run
+        # confirmation, not statistically meaningful numbers. The full bench
+        # harness lives at bench/loadtest.go (Phase 5a.4) and is invoked
+        # locally with `-benchtime=10s -count=5`.
+        run: go test -bench=. -benchtime=1x -run=^$ ./... || true

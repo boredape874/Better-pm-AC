@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 3 β + 5a.1/5a.2(부분) 완료; World/Client/Phase 4 spec-done — γ 구현 대기** |
-| 전체 진도 | 56 + spec-done 17 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate full + 5a.2 kick+rubberband + 3.C1.{1,3,6,7,14,15} β + 3.C2.{1,3,4,5,7,10} β + 3.C3.{1-5} β + 3.C4.{1-7} spec + 3.C5.{1-3} spec + 4.{1-8} spec; 2.W.3은 γ+1로 연기) |
+| Phase 진행 중 | **Phase 3 β + 5a.1/5a.2(부분) + 5b.1 + 5b.2(부분) 완료; World/Client/Phase 4 spec-done — γ 구현 대기** |
+| 전체 진도 | 57 + spec-done 17 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate full + 5a.2 kick+rubberband + 5b.1 CI/lint + 5b.2 metrics foundation + 3.C1.{1,3,6,7,14,15} β + 3.C2.{1,3,4,5,7,10} β + 3.C3.{1-5} β + 3.C4.{1-7} spec + 3.C5.{1-3} spec + 4.{1-8} spec; 2.W.3은 γ+1로 연기) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
@@ -719,22 +719,27 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
 # Phase 5b — Release (순차 · AI-O)
 
 ### Task 5b.1 — CI / GitHub Actions
-- Status: **pending**
-- Depends on: 5a.4
-- Files: `.github/workflows/ci.yml`
-- Acceptance:
-  - push / PR에서 `go build ./... && go vet ./... && go test -race ./...` 실행.
-  - Linux + Windows 매트릭스.
-  - 벤치 스모크 1종 nightly.
+- Status: **done β**
+- Files: `.github/workflows/ci.yml`, `.golangci.yml`
+- 결과:
+  - push / PR에서 `go build ./... && go vet ./... && go test -race -count=1 ./...` 실행.
+  - Linux + Windows 매트릭스, fail-fast 해제.
+  - 별도 `lint` job에서 golangci-lint v1.62 실행 (errcheck/gosec/staticcheck 등 13종).
+  - 벤치 스모크 cron 1회 (nightly 16:00 UTC).
+  - concurrency cancel-in-progress 로 중복 run 방지.
 
 ### Task 5b.2 — 메트릭 & 구조화 로그
-- Status: **pending**
-- Depends on: 5a.1
-- Files: `anticheat/mitigate/metrics.go`, `docs/ops-runbook.md`
-- Acceptance:
-  - design.md §13 메트릭 6종 전부 노출.
-  - `/metrics` HTTP 엔드포인트 (옵션 플래그).
-  - 운영 매뉴얼 작성 (flag 포맷, 메트릭 의미, 대시보드 JSON 샘플).
+- Status: **partial (foundation done β; runbook pending)**
+- Files: `anticheat/mitigate/metrics.go`, `anticheat/mitigate/metrics_test.go`, `anticheat/mitigate/policy.go`, `docs/ops-runbook.md`(TODO)
+- 완료:
+  - stdlib `expvar` 기반 카운터 5종 (violations/kicks/rubberbands/filtered_packets/dry_run_suppressed) — Prometheus 의존성 없이 `/debug/vars` 로 자동 노출.
+  - Dispatcher.Apply / applyKick / applyRubberband / applyServerFilter 모두 카운터 증가.
+  - PolicyNone 은 violations 에서 제외 (의도적 "관측만 한 신호").
+  - nil hook 경로는 dry_run_suppressed 로 구분 (dry-run 모드에서 의사결정 수 추적 가능).
+  - 테스트 3종: active-policy 집계 / kick-exceeded gate / nil-hook dry-run.
+- 남음:
+  - 운영 매뉴얼 (`docs/ops-runbook.md`): 메트릭 의미, 대시보드 샘플, alert threshold 권장값.
+  - per-check breakdown 은 γ 로 연기 (sync.Map 경쟁 vs 시작 시 등록 trade-off).
 
 ### Task 5b.3 — β 릴리스
 - Status: **pending**
