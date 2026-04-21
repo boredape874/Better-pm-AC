@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 3 β + 5a.1/5a.2(부분) + 5b.1 + 5b.2 완료; World/Client/Phase 4 spec-done — γ 구현 대기** |
-| 전체 진도 | 58 + spec-done 17 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate full + 5a.2 kick+rubberband + 5b.1 CI/lint + 5b.2 metrics+runbook + 3.C1.{1,3,6,7,14,15} β + 3.C2.{1,3,4,5,7,10} β + 3.C3.{1-5} β + 3.C4.{1-7} spec + 3.C5.{1-3} spec + 4.{1-8} spec; 2.W.3은 γ+1로 연기) |
+| Phase 진행 중 | **Phase 3 β + 5a.1/5a.2(부분) + 5b.1 + 5b.2 + 5b.3 CHANGELOG 완료; World/Client/Phase 4 spec-done — γ 구현 대기** |
+| 전체 진도 | 59 + spec-done 17 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate full + 5a.2 kick+rubberband + 5b.1 CI/lint + 5b.2 metrics+runbook + 5b.3 CHANGELOG + 3.C1.{1,3,6,7,14,15} β + 3.C2.{1,3,4,5,7,10} β + 3.C3.{1-5} β + 3.C4.{1-7} spec + 3.C5.{1-3} spec + 4.{1-8} spec; 2.W.3은 γ+1로 연기) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
@@ -743,9 +743,13 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - `/metrics` Prometheus endpoint (expvar → prom exporter로 충분; 필요 시 추가).
 
 ### Task 5b.3 — β 릴리스
-- Status: **pending**
-- Depends on: 5a.4, 5b.1
-- Acceptance: γ 기능 disabled, 태그 `v0.10.0-beta` 생성, CHANGELOG 작성.
+- Status: **done β (CHANGELOG written; tag 대기 — 5a.3/5a.4 통합/벤치 완료 후 찍을 것)**
+- Files: `CHANGELOG.md`
+- 완료:
+  - `CHANGELOG.md` v0.10.0-beta 엔트리 작성: Added(sim/world/rewind/ack/mitigate/checks/ops) · Changed · Fixed · Known-limitations(γ 로 연기된 항목) · Upgrade-notes.
+  - γ 기능이 disabled 임이 "Known limitations" 섹션에 명시 (ServerFilter unwired, per-check breakdown 없음, world/client/rewind 체크군 미구현).
+- 남음:
+  - 실제 `v0.10.0-beta` git tag 생성은 5a.3(integration) + 5a.4(perf bench)가 통과한 뒤로 미뤘다 — CHANGELOG는 준비되었으므로 태그는 한 커맨드.
 
 ### Task 5b.4 — γ 릴리스
 - Status: **pending**
