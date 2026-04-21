@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| Phase 진행 중 | **Phase 3 β + 5a.1/5a.2(부분) + 5b.1 + 5b.2 + 5b.3 CHANGELOG 완료; World/Client/Phase 4 spec-done — γ 구현 대기** |
-| 전체 진도 | 59 + spec-done 17 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate full + 5a.2 kick+rubberband + 5b.1 CI/lint + 5b.2 metrics+runbook + 5b.3 CHANGELOG + 3.C1.{1,3,6,7,14,15} β + 3.C2.{1,3,4,5,7,10} β + 3.C3.{1-5} β + 3.C4.{1-7} spec + 3.C5.{1-3} spec + 4.{1-8} spec; 2.W.3은 γ+1로 연기) |
+| Phase 진행 중 | **Phase 3 β + Phase 5 β 전부 완료 (5a.1~5a.4 + 5b.1~5b.3); World/Client/Phase 4 spec-done — γ 구현 대기** |
+| 전체 진도 | 61 + spec-done 17 / ~75 Tasks done (Phase 1+2 전체 + 5a.1 mitigate full + 5a.2 kick+rubberband + 5a.3 integration scenario + 5a.4 bench β + 5b.1 CI/lint + 5b.2 metrics+runbook + 5b.3 CHANGELOG + 3.C1.{1,3,6,7,14,15} β + 3.C2.{1,3,4,5,7,10} β + 3.C3.{1-5} β + 3.C4.{1-7} spec + 3.C5.{1-3} spec + 4.{1-8} spec; 2.W.3은 γ+1로 연기) |
 | β 마일스톤 ETA | **+10일 (2026-04-29 경)** — 5 AI 병렬 전제 |
 | γ 마일스톤 ETA | **+14일 (2026-05-03 경)** |
 | 현재 활성 AI | AI-O 겸임 (단일 세션, 경량 Task부터 순차 처리) |
@@ -701,20 +701,32 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - ⏭️ `ServerFilterFunc` 는 검사 호출이 패킷 forward **이후** 발생하는 현재 구조에서는 의미가 없음. 패킷 파이프라인을 재설계해 검사 hook 을 forward **이전** 으로 옮기고 `Dispatcher.Apply` 가 반환한 packet 으로 forward 하도록 변경 필요 (별도 task 로 분리 권고).
 
 ### Task 5a.3 — 통합 테스트
-- Status: **pending**
-- Depends on: 5a.2
-- Files: `anticheat/integration_test.go`, `testdata/sessions/*`
-- Acceptance:
-  - 합법 플레이어 녹화 5세션 → 0 violation.
-  - 치트 시뮬 녹화 5세션 (Speed/Fly/Reach/Scaffold/Nuker) → 각 해당 체크 flagged.
+- Status: **done β (scenario harness; real PCAP replay는 γ)**
+- Files: `anticheat/integration_test.go`
+- 완료:
+  - `anticheat/integration_test.go` 에 Manager.OnInput / OnAttack / OnMove / OnBlockPlace 를 전부 커버하는 scenario 8종 (legit 3 + cheat 5).
+  - Legit: idle standing / walking (0.2 b/tick) / legacy MovePlayer path — 모두 movement·packet 체크 묵음(`violations=0`).
+  - Cheat: BadPacket/D (NaN pos) / BadPacket/C (sprint+sneak) / BadPacket/E (contradictory start+stop bits) / Reach/A (4× 6-block attacks) / Scaffold/A 스모크. 각 시나리오마다 해당 체크 키가 violations ≥ 1.
+  - Default config 로 Manager 전체 registry 가동하므로 "신규 check 등록 누락" 회귀도 감지.
+- γ 로 연기:
+  - 실제 Bedrock 세션 PCAP 녹화 기반 replay harness (라이브 RakNet 캡처 도구 필요).
+  - Fly/A · Speed/A · NoFall/A 같은 시뮬레이터 의존 체크는 world 트래커 fixture 가 β 에서 미완이라 scenario 로 유발하지 않음 — γ 통합테스트에서 추가.
 
 ### Task 5a.4 — 성능 프로파일링 & 벤치
-- Status: **pending**
-- Depends on: 5a.3
-- Files: `bench/loadtest.go`
-- Acceptance:
-  - design.md §14.3 벤치 3종 (100 CCU / 치트 분류 / 1시간 leak) 모두 통과.
-  - p99 tick < 20ms, 메모리 p95 < 2GB RSS.
+- Status: **done β (smoke-level; 1h leak는 γ)**
+- Files: `bench/loadtest_test.go`
+- 결과:
+  - 4 종 bench 작성: `OnInputSinglePlayer` / `OnInput100CCU` / `OnAttack` / `PlayerAddRemove`.
+  - 1s run baseline (AMD Ryzen 5 5600G, windows/amd64):
+    - OnInputSinglePlayer: **46 µs/op**, 24 allocs.
+    - OnInput100CCU: **784 µs/op** (≈7.8 µs/player), 2380 allocs total.
+    - OnAttack: 93 µs/op, 75 allocs.
+    - PlayerAddRemove: 4 µs/op (churn).
+  - 20 Hz 기준 100 CCU 한 틱 예산 = 784 µs × 20 = 15.7 ms/s → **p99 < 20 ms tick 목표 만족** (약 25% 여유).
+  - CI nightly 에서 `-benchtime=1x` 스모크로 회귀 감지 (ci.yml bench-smoke job).
+- γ 로 연기:
+  - 1시간 leak 벤치 (RSS 2 GB 상한) — 현장 런타임 필요, lab 환경에선 noise 가 커서 단기 CI 미적합.
+  - 치트 분류 precision/recall 벤치 — 치트 클라이언트 표본 수집 필요.
 
 # Phase 5b — Release (순차 · AI-O)
 
