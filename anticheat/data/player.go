@@ -76,6 +76,7 @@ type Player struct {
 	expectedPos      mgl32.Vec3
 	committedPos     mgl32.Vec3
 	prevCommittedPos mgl32.Vec3
+	lastClientTick   uint64
 
 	// Airborne state counters (used by Fly/A)
 	// AirTicks counts consecutive packets where the player is airborne.
@@ -491,6 +492,12 @@ func (p *Player) CommittedPos() mgl32.Vec3 { return p.committedPos }
 
 // PrevCommittedPos is the previous tick's committed position. Used for delta math.
 func (p *Player) PrevCommittedPos() mgl32.Vec3 { return p.prevCommittedPos }
+
+// LastClientTick returns the last PlayerAuthInput.Tick observed.
+func (p *Player) LastClientTick() uint64 { return p.lastClientTick }
+
+// SetLastClientTick records the client tick.
+func (p *Player) SetLastClientTick(t uint64) { p.lastClientTick = t }
 
 // SetInputMode stores the latest InputMode from PlayerAuthInput.
 func (p *Player) SetInputMode(mode uint32) {

@@ -267,6 +267,9 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 		return
 	}
 
+	p.SetClaimedPos(pos)
+	p.SetLastClientTick(tick)
+
 	// Record arrival time for Timer/A before any state updates.
 	p.RecordInputTime()
 
