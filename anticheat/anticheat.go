@@ -214,6 +214,7 @@ func (m *Manager) RemovePlayer(id uuid.UUID) {
 	defer m.mu.Unlock()
 	delete(m.players, id)
 	delete(m.detections, id)
+	delete(m.lastTickCtx, id)
 }
 
 func (m *Manager) getPlayer(id uuid.UUID) *data.Player {
@@ -694,14 +695,3 @@ func (m *Manager) Stop() {
 	m.tickStop = nil
 }
 
-// SetServerTickForTest forces the ServerTick counter (test helper only).
-func (m *Manager) SetServerTickForTest(v uint64) {
-	atomic.StoreUint64(&m.serverTick, v)
-}
-
-// LastTickContextForTest returns the most recent TickContext for a player.
-func (m *Manager) LastTickContextForTest(id uuid.UUID) meta.TickContext {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.lastTickCtx[id]
-}
