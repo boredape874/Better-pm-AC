@@ -68,6 +68,15 @@ type Player struct {
 	Velocity     mgl32.Vec3
 	LastVelocity mgl32.Vec3
 
+	// Dual-tick authoritative position triplet (γ.1+).
+	// claimedPos: from PlayerAuthInput.Position (unvalidated).
+	// expectedPos: sim.Step() output (truth).
+	// committedPos: per-tick accepted final pos; next tick's prev base.
+	claimedPos      mgl32.Vec3
+	expectedPos     mgl32.Vec3
+	committedPos    mgl32.Vec3
+	prevCommittedPos mgl32.Vec3
+
 	// Airborne state counters (used by Fly/A)
 	// AirTicks counts consecutive packets where the player is airborne.
 	// Mirroring Oomph's grace-period approach: we skip the fly check for
@@ -455,6 +464,33 @@ func (p *Player) CurrentPosition() mgl32.Vec3 {
 	defer p.mu.RUnlock()
 	return p.Position
 }
+
+// SetClaimedPos records the client-claimed position from PlayerAuthInput.
+// Caller is the Manager; checks must consume CommittedPos() instead.
+func (p *Player) SetClaimedPos(v mgl32.Vec3) { p.claimedPos = v }
+
+// ClaimedPos returns the most-recent client-claimed position.
+func (p *Player) ClaimedPos() mgl32.Vec3 { return p.claimedPos }
+
+// SetExpectedPos records the sim-computed expected position. Truth.
+func (p *Player) SetExpectedPos(v mgl32.Vec3) { p.expectedPos = v }
+
+// ExpectedPos returns the sim-computed expected position for the current tick.
+func (p *Player) ExpectedPos() mgl32.Vec3 { return p.expectedPos }
+
+// Commit promotes a position to the per-tick accepted state, rolling the
+// previous committed pos into prevCommittedPos. Called by reconciliation
+// once per tick, never directly by checks.
+func (p *Player) Commit(v mgl32.Vec3) {
+	p.prevCommittedPos = p.committedPos
+	p.committedPos = v
+}
+
+// CommittedPos is the per-tick accepted final position. Checks read this.
+func (p *Player) CommittedPos() mgl32.Vec3 { return p.committedPos }
+
+// PrevCommittedPos is the previous tick's committed position. Used for delta math.
+func (p *Player) PrevCommittedPos() mgl32.Vec3 { return p.prevCommittedPos }
 
 // SetInputMode stores the latest InputMode from PlayerAuthInput.
 func (p *Player) SetInputMode(mode uint32) {
