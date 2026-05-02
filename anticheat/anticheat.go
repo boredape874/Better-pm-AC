@@ -78,6 +78,8 @@ type Manager struct {
 	players    map[uuid.UUID]*data.Player
 	detections map[uuid.UUID]playerDetections
 
+	lastTickCtx map[uuid.UUID]meta.TickContext // test-only mirror
+
 	// serverTick is the proxy-side monotonic clock advanced at 20 TPS by the
 	// goroutine started in StartTicker. Read with sync/atomic so checks can
 	// sample it without taking mu. tickStop signals the goroutine to exit;
@@ -135,10 +137,11 @@ type Manager struct {
 // NewManager creates a Manager ready to process packets.
 func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 	m := &Manager{
-		cfg:        cfg,
-		log:        log,
-		players:    make(map[uuid.UUID]*data.Player),
-		detections: make(map[uuid.UUID]playerDetections),
+		cfg:          cfg,
+		log:          log,
+		players:      make(map[uuid.UUID]*data.Player),
+		detections:   make(map[uuid.UUID]playerDetections),
+		lastTickCtx:  make(map[uuid.UUID]meta.TickContext),
 		speed:        movement.NewSpeedCheck(cfg.Speed),
 		speedB:       movement.NewSpeedBCheck(cfg.SpeedB),
 		fly:          movement.NewFlyCheck(cfg.Fly),
@@ -269,6 +272,12 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 
 	p.SetClaimedPos(pos)
 	p.SetLastClientTick(tick)
+
+	sTick := atomic.LoadUint64(&m.serverTick)
+	ctx := meta.TickContext{ServerTick: sTick, ClientTick: tick}
+	m.mu.Lock()
+	m.lastTickCtx[id] = ctx
+	m.mu.Unlock()
 
 	// Record arrival time for Timer/A before any state updates.
 	p.RecordInputTime()
@@ -683,4 +692,16 @@ func (m *Manager) Stop() {
 	close(m.tickStop)
 	m.tickWG.Wait()
 	m.tickStop = nil
+}
+
+// SetServerTickForTest forces the ServerTick counter (test helper only).
+func (m *Manager) SetServerTickForTest(v uint64) {
+	atomic.StoreUint64(&m.serverTick, v)
+}
+
+// LastTickContextForTest returns the most recent TickContext for a player.
+func (m *Manager) LastTickContextForTest(id uuid.UUID) meta.TickContext {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.lastTickCtx[id]
 }
