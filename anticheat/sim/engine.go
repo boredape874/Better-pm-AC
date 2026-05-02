@@ -1,7 +1,10 @@
 package sim
 
 import (
+	"math"
+
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 // Engine replays Bedrock player physics tick by tick. It is pure:
@@ -65,3 +68,131 @@ func (e *Engine) Step(prev meta.SimState, input meta.SimInput, world meta.WorldT
 
 // compile-time contract check
 var _ meta.SimEngine = (*Engine)(nil)
+
+// Effects is the public alias for the internal effectContext. Exporting it
+// lets external callers (e.g. property-based tests in adjacent packages)
+// build a StepInput without having to bridge through meta.SimInput. It is a
+// thin POD struct — see effects.go for the field semantics.
+type Effects = effectContext
+
+// StepInput is the immutable input to the deterministic single-tick simulator.
+// All physics state needed for one tick must arrive in this struct — Step()
+// must not read any package-level globals. This is what makes property-based
+// testing of the sim viable.
+type StepInput struct {
+	PrevPos      mgl32.Vec3
+	Velocity     mgl32.Vec3
+	OnGround     bool
+	Effects      Effects // existing struct from effects.go
+	InputForward float32
+	InputStrafe  float32
+	Sprint       bool
+	Sneak        bool
+	Jump         bool
+	InLiquid     bool
+	OnClimbable  bool
+}
+
+// StepOutput is the result of one simulation tick.
+type StepOutput struct {
+	ExpectedPos mgl32.Vec3
+	Velocity    mgl32.Vec3
+}
+
+// Step advances the simulation by exactly one 50 ms tick using the rules
+// already encoded in this package (gravity, friction, jump, walk, fluid).
+// It is pure: same input → same output, no shared state.
+//
+// γ.1 stub: assembles existing helpers without world / collision context.
+// γ.5 will add small-Δ collision and lava-specific drag here. The current
+// shape is sufficient for shadow-mode plumbing.
+func Step(in StepInput) StepOutput {
+	v := in.Velocity
+	if !in.OnGround {
+		v = gravityVelOnly(v, in.Effects)
+	}
+	if in.Jump && in.OnGround {
+		v = jumpVelOnly(v, in.Effects, in.Sprint)
+	}
+	v = walkVelOnly(v, in.InputForward, in.InputStrafe, in.Sprint, in.Sneak, in.OnGround, in.Effects)
+	v = frictionVelOnly(v, in.OnGround)
+	pos := in.PrevPos.Add(v)
+	return StepOutput{ExpectedPos: pos, Velocity: v}
+}
+
+// gravityVelOnly is the velocity-only inner core of applyVertical: applies
+// gravity and Y drag without consulting any external state. Levitation /
+// SlowFalling come from Effects.
+func gravityVelOnly(v mgl32.Vec3, fx Effects) mgl32.Vec3 {
+	if fx.Levitation > 0 {
+		target := LevitationStep * float32(fx.Levitation)
+		v[1] += (target - v[1]) * 0.2
+		return v
+	}
+	if fx.SlowFalling && v[1] < 0 {
+		if v[1] < -SlowFallCap {
+			v[1] = -SlowFallCap
+		}
+	} else {
+		v[1] -= Gravity
+	}
+	v[1] *= AirDragY
+	return v
+}
+
+// jumpVelOnly is the velocity-only inner core of applyJump. Caller is
+// responsible for the OnGround && Jump precondition; this helper unconditionally
+// applies the jump impulse plus optional sprint-jump horizontal boost.
+func jumpVelOnly(v mgl32.Vec3, fx Effects, sprint bool) mgl32.Vec3 {
+	v[1] = JumpVel + fx.jumpBoost()
+	if sprint {
+		v[0] *= 1.2
+		v[2] *= 1.2
+	}
+	return v
+}
+
+// walkVelOnly is the velocity-only inner core of applyInput. Strafe maps to
+// world X, forward to world Z (callers pre-rotate by yaw — same convention as
+// applyInput). UsingItem / Swimming are not yet plumbed through StepInput;
+// γ.5 will extend the field set as needed.
+func walkVelOnly(v mgl32.Vec3, forward, strafe float32, sprint, sneak, onGround bool, fx Effects) mgl32.Vec3 {
+	if forward == 0 && strafe == 0 {
+		return v
+	}
+	base := GroundMovement
+	if !onGround {
+		base = AirMovement
+	}
+	multiplier := float32(1.0)
+	switch {
+	case sprint:
+		multiplier *= SprintMultiplier
+	case sneak && onGround:
+		multiplier *= SneakMultiplier
+	}
+	multiplier *= fx.speedMultiplier()
+
+	// Clamp diagonal magnitude to 1 — match applyInput.
+	mag := float32(math.Sqrt(float64(forward*forward + strafe*strafe)))
+	if mag > 1.0 {
+		forward /= mag
+		strafe /= mag
+	}
+	v[0] += strafe * base * multiplier
+	v[2] += forward * base * multiplier
+	return v
+}
+
+// frictionVelOnly is the velocity-only inner core of applyFriction with no
+// surface flags wired in (γ.5 will add them). Ground friction collapses to
+// DefaultFriction × BaseFriction; airborne is just BaseFriction.
+func frictionVelOnly(v mgl32.Vec3, onGround bool) mgl32.Vec3 {
+	factor := BaseFriction
+	if onGround {
+		factor = BaseFriction * DefaultFriction
+	}
+	v[0] *= factor
+	v[2] *= factor
+	return v
+}
