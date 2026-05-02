@@ -72,9 +72,9 @@ type Player struct {
 	// claimedPos: from PlayerAuthInput.Position (unvalidated).
 	// expectedPos: sim.Step() output (truth).
 	// committedPos: per-tick accepted final pos; next tick's prev base.
-	claimedPos      mgl32.Vec3
-	expectedPos     mgl32.Vec3
-	committedPos    mgl32.Vec3
+	claimedPos       mgl32.Vec3
+	expectedPos      mgl32.Vec3
+	committedPos     mgl32.Vec3
 	prevCommittedPos mgl32.Vec3
 
 	// Airborne state counters (used by Fly/A)
