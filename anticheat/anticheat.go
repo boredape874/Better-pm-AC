@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/boredape874/Better-pm-AC/anticheat/checks/combat"
 	"github.com/boredape874/Better-pm-AC/anticheat/checks/movement"
@@ -75,6 +77,14 @@ type Manager struct {
 	mu         sync.RWMutex
 	players    map[uuid.UUID]*data.Player
 	detections map[uuid.UUID]playerDetections
+
+	// serverTick is the proxy-side monotonic clock advanced at 20 TPS by the
+	// goroutine started in StartTicker. Read with sync/atomic so checks can
+	// sample it without taking mu. tickStop signals the goroutine to exit;
+	// tickWG lets Stop wait for clean shutdown.
+	serverTick uint64
+	tickStop   chan struct{}
+	tickWG     sync.WaitGroup
 
 	// checks is the ordered registry of all registered Detection
 	// implementations. It is used by newPlayerDetections() to initialise
@@ -633,4 +643,41 @@ func (m *Manager) handleViolation(p *data.Player, d Detection, md *DetectionMeta
 
 	disp := mitigate.NewDispatcherWithHooks(m.log, kick, m.RubberbandFunc, m.ServerFilterFunc)
 	disp.Apply(p.UUID.String(), d, md, nil)
+}
+
+// ServerTick returns the current monotonic proxy tick. Read with sync/atomic.
+func (m *Manager) ServerTick() uint64 {
+	return atomic.LoadUint64(&m.serverTick)
+}
+
+// StartTicker boots the 20 TPS goroutine that advances ServerTick. Idempotent.
+func (m *Manager) StartTicker() {
+	if m.tickStop != nil {
+		return
+	}
+	m.tickStop = make(chan struct{})
+	m.tickWG.Add(1)
+	go func() {
+		defer m.tickWG.Done()
+		t := time.NewTicker(50 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				atomic.AddUint64(&m.serverTick, 1)
+			case <-m.tickStop:
+				return
+			}
+		}
+	}()
+}
+
+// Stop halts the ticker. Safe to call multiple times.
+func (m *Manager) Stop() {
+	if m.tickStop == nil {
+		return
+	}
+	close(m.tickStop)
+	m.tickWG.Wait()
+	m.tickStop = nil
 }
