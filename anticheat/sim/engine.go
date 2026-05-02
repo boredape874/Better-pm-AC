@@ -89,8 +89,8 @@ type StepInput struct {
 	Sprint       bool
 	Sneak        bool
 	Jump         bool
-	InLiquid     bool
-	OnClimbable  bool
+	InLiquid     bool // γ.5 — currently ignored by Step()
+	OnClimbable  bool // γ.5 — currently ignored by Step()
 }
 
 // StepOutput is the result of one simulation tick.
@@ -106,6 +106,18 @@ type StepOutput struct {
 // γ.1 stub: assembles existing helpers without world / collision context.
 // γ.5 will add small-Δ collision and lava-specific drag here. The current
 // shape is sufficient for shadow-mode plumbing.
+//
+// γ.1 stub does NOT yet handle fluid (water/lava drag) or climbable surfaces
+// (ladders, vines). Callers feeding swimming or laddered players will see
+// disagreement vs. the legacy Engine.Step. γ.5 will add applyFluid /
+// applyClimbable here, at which point StepInput.InLiquid and
+// StepInput.OnClimbable will become live inputs.
+//
+// WARNING: callers must NOT set Sprint=true (or pass Jump while Sprint=true)
+// when the player is using an item. The legacy sim disables sprint-speed and
+// the sprint-jump 1.2× boost during item use; γ.1 walkVelOnly / jumpVelOnly do
+// NOT replicate that guard because UsingItem is not yet on StepInput. γ.5
+// plumbs it.
 func Step(in StepInput) StepOutput {
 	v := in.Velocity
 	if !in.OnGround {
@@ -143,6 +155,11 @@ func gravityVelOnly(v mgl32.Vec3, fx Effects) mgl32.Vec3 {
 // jumpVelOnly is the velocity-only inner core of applyJump. Caller is
 // responsible for the OnGround && Jump precondition; this helper unconditionally
 // applies the jump impulse plus optional sprint-jump horizontal boost.
+//
+// Sprint-guard divergence: legacy applyInput / applyJump disable the sprint
+// multiplier (and the sprint-jump 1.2× boost) when UsingItem is set. This
+// inner core does NOT — UsingItem will be plumbed in γ.5. Until then, callers
+// must clear Sprint for item-using players.
 func jumpVelOnly(v mgl32.Vec3, fx Effects, sprint bool) mgl32.Vec3 {
 	v[1] = JumpVel + fx.jumpBoost()
 	if sprint {
@@ -156,6 +173,11 @@ func jumpVelOnly(v mgl32.Vec3, fx Effects, sprint bool) mgl32.Vec3 {
 // world X, forward to world Z (callers pre-rotate by yaw — same convention as
 // applyInput). UsingItem / Swimming are not yet plumbed through StepInput;
 // γ.5 will extend the field set as needed.
+//
+// Sprint-guard divergence: legacy applyInput / applyJump disable the sprint
+// multiplier (and the sprint-jump 1.2× boost) when UsingItem is set. This
+// inner core does NOT — UsingItem will be plumbed in γ.5. Until then, callers
+// must clear Sprint for item-using players.
 func walkVelOnly(v mgl32.Vec3, forward, strafe float32, sprint, sneak, onGround bool, fx Effects) mgl32.Vec3 {
 	if forward == 0 && strafe == 0 {
 		return v
