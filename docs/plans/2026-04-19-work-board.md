@@ -728,6 +728,30 @@ Phase 1 완료 전까지 **다른 AI는 Task claim 금지**. 인터페이스와 
   - 1시간 leak 벤치 (RSS 2 GB 상한) — 현장 런타임 필요, lab 환경에선 noise 가 커서 단기 CI 미적합.
   - 치트 분류 precision/recall 벤치 — 치트 클라이언트 표본 수집 필요.
 
+# γ.1 — Dual-Tick Foundation (done)
+
+**Tag:** `γ.1-foundation` (2026-05-05)
+**Gate result:** all checks pass.
+
+| Check | Result |
+|---|---|
+| `go test ./... -count=1` | ALL PASS (anticheat, ack, combat, movement, packet, data, entity, meta, mitigate, sim, world, bench) |
+| `go vet ./...` | clean (no output) |
+| `golangci-lint run ./...` | not installed — CI-deferred (`.golangci.yml` + GitHub Actions lint job covers this) |
+
+**Bench baseline (AMD Ryzen 5 5600G, windows/amd64, `-benchtime=3s`):**
+
+| Benchmark | ns/op | B/op | allocs/op |
+|---|---|---|---|
+| BenchmarkOnInputSinglePlayer-12 | 52 411 | 567 | 24 |
+| BenchmarkOnInput100CCU-12 | 880 956 (~8.8 µs/player) | 50 762 | 2 399 |
+| BenchmarkOnAttack-12 | 103 928 | 73 645 | 75 |
+| BenchmarkPlayerAddRemove-12 | 4 378 | 3 809 | 66 |
+
+Notes: OnInput100CCU at 8.8 µs/player comfortably satisfies the ≤ 10 µs/player gate.
+
+---
+
 # Phase 5b — Release (순차 · AI-O)
 
 ### Task 5b.1 — CI / GitHub Actions
