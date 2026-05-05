@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/boredape874/Better-pm-AC/anticheat"
+	"github.com/boredape874/Better-pm-AC/anticheat/mitigate"
 	"github.com/boredape874/Better-pm-AC/config"
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/go-gl/mathgl/mgl32"
@@ -43,6 +44,11 @@ func New(cfg config.Config, log *slog.Logger) *Proxy {
 	}
 	ac.KickFunc = p.kick
 	ac.RubberbandFunc = p.rubberband
+
+	// Wire CorrectPlayerMovePrediction so the reconciler can snap clients back
+	// to the authoritative position. The corrector is stored on the Manager so
+	// the anticheat layer stays decoupled from the wire format.
+	ac.SetCorrector(mitigate.NewCorrector(p.correctMovePrediction))
 	return p
 }
 
@@ -452,6 +458,34 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 			return ctx.Err()
 		default:
 		}
+	}
+}
+
+// correctMovePrediction sends a CorrectPlayerMovePrediction packet to the
+// client for the given player, snapping their client-side prediction to pos.
+// This is the CorrectFunc implementation wired into the Manager's Corrector in
+// New() so that reconcile OutcomeSnap verdicts produce real packet corrections.
+func (p *Proxy) correctMovePrediction(id uuid.UUID, pos mgl32.Vec3) {
+	p.mu.Lock()
+	sess, ok := p.sessions[id]
+	p.mu.Unlock()
+	if !ok {
+		return
+	}
+	pl := p.ac.GetPlayer(id)
+	if pl == nil {
+		return
+	}
+	tick := pl.SimFrame()
+	pkt := &packet.CorrectPlayerMovePrediction{
+		PredictionType: packet.PredictionTypePlayer,
+		Position:       pos,
+		Delta:          mgl32.Vec3{}, // server-computed delta unknown here; zero is safe
+		OnGround:       false,
+		Tick:           tick,
+	}
+	if err := sess.Client.WritePacket(pkt); err != nil {
+		p.log.Debug("correct move prediction write failed", "uuid", id, "err", err)
 	}
 }
 

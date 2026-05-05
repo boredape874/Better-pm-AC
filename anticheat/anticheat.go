@@ -716,6 +716,24 @@ func (m *Manager) handleViolation(p *data.Player, d Detection, md *DetectionMeta
 	disp.Apply(p.UUID.String(), d, md, nil)
 }
 
+// SetCorrector replaces the Manager's corrector with c. Call this after
+// NewManager to wire the actual packet-send implementation for reconcile Snaps.
+func (m *Manager) SetCorrector(c *mitigate.Corrector) {
+	if c != nil {
+		m.corrector = c
+	}
+}
+
+// CommittedPos returns the player's current committed position (thread-safe).
+// The proxy uses this to overwrite PlayerAuthInput.Position before forwarding
+// upstream, so the server always sees the reconciler-accepted position.
+func (m *Manager) CommittedPos(id uuid.UUID) mgl32.Vec3 {
+	if p := m.getPlayer(id); p != nil {
+		return p.CommittedPos()
+	}
+	return mgl32.Vec3{}
+}
+
 // ServerTick returns the current monotonic proxy tick. Read with sync/atomic.
 func (m *Manager) ServerTick() uint64 {
 	return atomic.LoadUint64(&m.serverTick)
