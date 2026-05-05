@@ -38,11 +38,22 @@ const phaseAMaxDelta = float64(6.0)
 //   - Requiring posInitialised (first tick is always skipped).
 //
 // Implements anticheat.Detection.
+// phaseASnapThreshold is the number of reconciler snaps within the rolling
+// window that triggers a Phase/A flag under MovementAuth. A snap means the
+// reconciler had to correct the client's claimed position because it was
+// outside the tolerance band — more than 3 snaps in 20 ticks signals that
+// the client is consistently teleporting to bad positions.
+const phaseASnapThreshold = 3
+
 type PhaseACheck struct {
-	cfg config.PhaseAConfig
+	cfg       config.PhaseAConfig
+	authority *config.AuthorityConfig
 }
 
 func NewPhaseACheck(cfg config.PhaseAConfig) *PhaseACheck { return &PhaseACheck{cfg: cfg} }
+
+// SetAuthority wires the shared AuthorityConfig.
+func (c *PhaseACheck) SetAuthority(a *config.AuthorityConfig) { c.authority = a }
 
 func (*PhaseACheck) Type() string    { return "Phase" }
 func (*PhaseACheck) SubType() string { return "A" }
@@ -61,35 +72,63 @@ func (c *PhaseACheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// Check evaluates the magnitude of the current position delta. teleportGrace is
-// passed in from anticheat.go: when true, the player has just been teleported by
-// the server and the large delta is expected; skip the check.
-func (c *PhaseACheck) Check(p *data.Player, teleportGrace bool) (bool, string) {
+// CheckLegacy is the original position-delta (3D distance) implementation
+// (γ.3.4 migration: retained as fallback when MovementAuth is disabled).
+func (c *PhaseACheck) CheckLegacy(p *data.Player, teleportGrace bool) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
-	// Creative players can fly at any speed; some servers also issue creative
-	// teleports. Exempt entirely.
 	if p.IsCreative() {
 		return false, ""
 	}
-	// Elytra gliding can sustain very high horizontal speeds (especially with
-	// firework rockets): the 3D velocity can easily exceed 6 b/tick.  Exempt
-	// gliding players entirely to prevent false positives. Mirrors Oomph's
-	// gliding exemption in its position-delta validation.
 	if p.IsGliding() {
 		return false, ""
 	}
-	// Server-sent teleport this tick — the large delta is expected.
 	if teleportGrace {
 		return false, ""
 	}
-
 	vel := p.PositionDelta()
-	dist := math.Sqrt(float64(vel[0]*vel[0]+vel[1]*vel[1]+vel[2]*vel[2]))
-
+	dist := math.Sqrt(float64(vel[0]*vel[0] + vel[1]*vel[1] + vel[2]*vel[2]))
 	if dist > phaseAMaxDelta {
 		return true, fmt.Sprintf("delta=%.2f max=%.1f", dist, phaseAMaxDelta)
+	}
+	return false, ""
+}
+
+// Check evaluates the magnitude of the current position delta. teleportGrace is
+// passed in from anticheat.go: when true, the player has just been teleported by
+// the server and the large delta is expected; skip the check.
+// Under MovementAuth the check switches to snap-rate analysis: because
+// CommittedPos is already corrected by reconcile, a phase cheat shows up as
+// repeated OutcomeSnap verdicts rather than a large raw delta.
+func (c *PhaseACheck) Check(p *data.Player, teleportGrace bool) (bool, string) {
+	if c.authority != nil && c.authority.MovementAuth {
+		return c.checkCommitted(p, teleportGrace)
+	}
+	return c.CheckLegacy(p, teleportGrace)
+}
+
+// checkCommitted uses the reconciler snap rate as the phase-detection signal.
+// Under MovementAuth, CommittedPos is already reconciler-corrected, so a phase
+// cheat shows up as repeated OutcomeSnap corrections within the rolling window
+// rather than a large raw position delta. More than phaseASnapThreshold snaps
+// in 20 ticks is the threshold (see data.Player.RecordSnap / SnapSnapshot).
+func (c *PhaseACheck) checkCommitted(p *data.Player, teleportGrace bool) (bool, string) {
+	if !c.cfg.Enabled {
+		return false, ""
+	}
+	if p.IsCreative() {
+		return false, ""
+	}
+	if p.IsGliding() {
+		return false, ""
+	}
+	if teleportGrace {
+		return false, ""
+	}
+	snapCount, windowSize := p.SnapSnapshot()
+	if snapCount > phaseASnapThreshold {
+		return true, fmt.Sprintf("snap_rate=%d/%d_ticks threshold=%d", snapCount, windowSize, phaseASnapThreshold)
 	}
 	return false, ""
 }
