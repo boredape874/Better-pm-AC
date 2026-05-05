@@ -21,16 +21,20 @@ func flyFixture(t *testing.T, airTicks int, yDelta float32) *data.Player {
 	t.Helper()
 	p := data.NewPlayer(uuid.New(), "tester")
 	// Ground baseline (twice so LastOnGround is also true).
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
+	base := mgl32.Vec3{0, 64, 0}
+	p.UpdatePosition(base, true)
+	p.Commit(base)
+	p.UpdatePosition(base, true)
+	p.Commit(base)
 
-	// Airborne ticks: start from Y=64 and decrement by yDelta each tick
-	// (decrement because Bedrock Y-down means falling is negative yDelta
-	// arithmetic: newY = prevY + yDelta).
+	// Airborne ticks: start from Y=64 and advance by yDelta each tick.
+	// Commit each position so CommittedPos delta matches the Y step.
 	y := float32(64)
 	for i := 0; i < airTicks; i++ {
 		y += yDelta
-		p.UpdatePosition(mgl32.Vec3{0, y, 0}, false)
+		pos := mgl32.Vec3{0, y, 0}
+		p.UpdatePosition(pos, false)
+		p.Commit(pos)
 	}
 	// No terrain contact, not sneaking/crawling/swimming — just plain air.
 	p.SetInputFlags(false, false, false, false, false, false)
@@ -46,15 +50,20 @@ func newFlyCheck() *FlyCheck {
 func TestFlyALegalJumpArcDoesNotFlag(t *testing.T) {
 	// Construct an arc manually rather than via flyFixture so yDelta varies.
 	p := data.NewPlayer(uuid.New(), "tester")
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
+	base := mgl32.Vec3{0, 64, 0}
+	p.UpdatePosition(base, true)
+	p.Commit(base)
+	p.UpdatePosition(base, true)
+	p.Commit(base)
 	p.SetInputFlags(false, false, false, false, false, false)
 	// Jump profile: +0.42 (jump), then gravity*airDrag decay.
 	yVel := float32(0.42)
 	y := float32(64)
 	for i := 0; i < 6; i++ {
 		y += yVel
-		p.UpdatePosition(mgl32.Vec3{0, y, 0}, false)
+		pos := mgl32.Vec3{0, y, 0}
+		p.UpdatePosition(pos, false)
+		p.Commit(pos)
 		yVel = (yVel - 0.08) * 0.98
 	}
 

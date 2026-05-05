@@ -16,9 +16,14 @@ import (
 func itemUseFixture(t *testing.T, dx float32) *data.Player {
 	t.Helper()
 	p := data.NewPlayer(uuid.New(), "tester")
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
-	p.UpdatePosition(mgl32.Vec3{dx, 64, 0}, true)
+	base := mgl32.Vec3{0, 64, 0}
+	p.UpdatePosition(base, true)
+	p.Commit(base)
+	p.UpdatePosition(base, true)
+	p.Commit(base)
+	cur := mgl32.Vec3{dx, 64, 0}
+	p.UpdatePosition(cur, true)
+	p.Commit(cur)
 	// Flags: not sprinting, not sneaking, not in water, not crawling, USING ITEM.
 	p.SetInputFlags(false, false, false, false, true, true)
 	return p
@@ -73,9 +78,14 @@ func TestNoSlowABoundaryJustUnder(t *testing.T) {
 // would be caught by Speed/A or Phase/A, not this check).
 func TestNoSlowANotUsingItemSkips(t *testing.T) {
 	p := data.NewPlayer(uuid.New(), "tester")
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
-	p.UpdatePosition(mgl32.Vec3{5, 64, 0}, true)
+	base := mgl32.Vec3{0, 64, 0}
+	p.UpdatePosition(base, true)
+	p.Commit(base)
+	p.UpdatePosition(base, true)
+	p.Commit(base)
+	cur := mgl32.Vec3{5, 64, 0}
+	p.UpdatePosition(cur, true)
+	p.Commit(cur)
 	p.SetInputFlags(true, false, false, false, false, true) // sprinting, NOT using item
 
 	if flagged, _ := newNoSlowCheck().Check(p); flagged {

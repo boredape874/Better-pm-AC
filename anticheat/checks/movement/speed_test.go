@@ -25,11 +25,16 @@ func speedFixture(t *testing.T, dx float32, sprinting, sneaking, crawling, using
 	// First tick: establish baseline position and on-ground state. Do it
 	// twice so LastOnGround is also true (IsJustLanded only fires on the
 	// ground→air transition tick).
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
+	base := mgl32.Vec3{0, 64, 0}
+	p.UpdatePosition(base, true)
+	p.Commit(base)
+	p.UpdatePosition(base, true)
+	p.Commit(base)
 
-	// Second tick: horizontal displacement dx in +X. Velocity = delta = dx.
-	p.UpdatePosition(mgl32.Vec3{dx, 64, 0}, true)
+	// Third tick: horizontal displacement dx in +X. Commit so CommittedPos delta = dx.
+	cur := mgl32.Vec3{dx, 64, 0}
+	p.UpdatePosition(cur, true)
+	p.Commit(cur)
 
 	// Input flags — terrainCollision=true because Speed/A expects a grounded
 	// player to be in contact with terrain; false here would only matter for
