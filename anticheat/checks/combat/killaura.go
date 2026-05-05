@@ -3,9 +3,11 @@ package combat
 import (
 	"fmt"
 
+	ac_combat "github.com/boredape874/Better-pm-AC/anticheat/combat"
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
 	"github.com/boredape874/Better-pm-AC/config"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 // maxSwingTickDiff is the baseline maximum number of simulation ticks that may
@@ -21,9 +23,10 @@ const maxSwingTickDiff = uint64(10)
 const maxSwingPingCapTicks = uint64(10)
 
 // KillAuraCheck (KillauraA) detects players that attack entities without
-// swinging their arm within the expected tick window. This is Oomph's primary
-// KillAura detection strategy: KillAura bots often send attack packets
-// separately from swing animations (packet.Animate / InputFlagMissedSwing).
+// swinging their arm within the expected tick window. When entity rewind
+// snapshots are provided, it also validates via raycast: if the ray hits the
+// entity bbox but no swing was recorded in [T-1, T+1], the attack is flagged
+// as a swing-less hit.
 // Implements anticheat.Detection.
 type KillAuraCheck struct {
 	cfg config.KillAuraConfig
@@ -53,12 +56,13 @@ func (*KillAuraCheck) Name() string { return "KillAura/A" }
 
 // Check evaluates whether the attack was accompanied by a recent arm swing.
 //
-// Logic (mirrors Oomph KillauraA):
-//   - currentTick = player's SimulationFrame at time of attack
-//   - lastSwing   = SimulationFrame of last packet.Animate / MissedSwing event
-//   - tickDiff    = currentTick - lastSwing
-//   - Flag if tickDiff > maxSwingTickDiff (i.e., no swing in the last 10 ticks)
-func (c *KillAuraCheck) Check(p *data.Player) (bool, string) {
+// When snapshots is non-empty (γ.4 raycast path):
+//   - Build the eye ray from the attacker's position and look direction.
+//   - If CastN returns Hit=true, verify that lastSwing is within [T-1, T+1].
+//   - If no swing in that tight window → flag as swing-less hit.
+//
+// When snapshots is empty the check falls back to the tick-difference window.
+func (c *KillAuraCheck) Check(p *data.Player, snapshots ...ac_combat.BBox) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
@@ -72,6 +76,27 @@ func (c *KillAuraCheck) Check(p *data.Player) (bool, string) {
 		return false, ""
 	}
 
+	// Raycast path: if we have entity snapshots, check swing-vs-hit strictly.
+	if len(snapshots) > 0 {
+		feetPos := p.CurrentPosition()
+		eyePos := mgl32.Vec3{feetPos[0], feetPos[1] + attackerEyeHeight, feetPos[2]}
+		yaw, pitch := p.RotationAbsolute()
+		dir := buildLookDir(yaw, pitch)
+		// Use a generous maxReach here; Reach/A handles distance enforcement.
+		const castReach = float32(10.0)
+		result := ac_combat.CastN(eyePos, dir, snapshots, castReach)
+		if result.Hit {
+			// The ray confirmed the entity was hittable. Check for a swing in
+			// [T-1, T+1] (tight window: raycast is precise enough to enforce this).
+			swingInWindow := lastSwing+1 >= currentTick && currentTick+1 >= lastSwing
+			if !swingInWindow {
+				return true, fmt.Sprintf("swing_less_hit current=%d last_swing=%d", currentTick, lastSwing)
+			}
+		}
+		return false, ""
+	}
+
+	// Legacy tick-difference path.
 	var tickDiff uint64
 	if currentTick >= lastSwing {
 		tickDiff = currentTick - lastSwing
@@ -80,10 +105,6 @@ func (c *KillAuraCheck) Check(p *data.Player) (bool, string) {
 		return false, ""
 	}
 
-	// Extend the allowed window by one-way ping in ticks so that high-latency
-	// clients whose swing packet arrives after the attack packet are not falsely
-	// flagged. Cap the extension to maxSwingPingCapTicks (mirrors GrimAC's
-	// latency-compensated KillauraA window).
 	latency := p.Latency()
 	pingTicks := uint64(latency.Seconds() * 20.0 / 2.0)
 	if pingTicks > maxSwingPingCapTicks {
