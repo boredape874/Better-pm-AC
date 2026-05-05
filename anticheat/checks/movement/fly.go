@@ -47,10 +47,14 @@ const flyUpwardThreshold = float32(0.005)
 // false-positive-free signal even at the jump apex where Y velocity briefly
 // approaches zero naturally.
 type FlyCheck struct {
-	cfg config.FlyConfig
+	cfg       config.FlyConfig
+	authority *config.AuthorityConfig
 }
 
 func NewFlyCheck(cfg config.FlyConfig) *FlyCheck { return &FlyCheck{cfg: cfg} }
+
+// SetAuthority wires the shared AuthorityConfig.
+func (c *FlyCheck) SetAuthority(a *config.AuthorityConfig) { c.authority = a }
 
 func (*FlyCheck) Type() string    { return "Fly" }
 func (*FlyCheck) SubType() string { return "A" }
@@ -68,46 +72,27 @@ func (c *FlyCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// Check evaluates the airborne state using tick-based counters.
-func (c *FlyCheck) Check(p *data.Player) (bool, string) {
+// CheckLegacy is the original hover/upward-fly implementation of Fly/A
+// (γ.3.2 migration: retained as fallback when MovementAuth is disabled).
+func (c *FlyCheck) CheckLegacy(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
-	// Creative players can legitimately fly; exempt them entirely.
 	if p.IsCreative() {
 		return false, ""
 	}
-	// Players gliding with an elytra are legitimately airborne without falling;
-	// their Y velocity is sustained by horizontal momentum, not a cheat.
 	if p.IsGliding() {
 		return false, ""
 	}
-	// Players with the Slow Falling effect fall at terminal velocity of ~0.005
-	// blocks/tick which is at or below hoverDeltaThreshold.  This causes
-	// HoverTicks to accumulate even though the player is legitimately sinking;
-	// exempt them entirely to avoid false positives.  Mirrors Oomph's behaviour
-	// of skipping the hover check when a gravity-modifying effect is active.
 	if _, hasSlowFall := p.EffectAmplifier(packet.EffectSlowFalling); hasSlowFall {
 		return false, ""
 	}
-	// The Levitation effect continuously pushes the player upward, producing
-	// a sustained positive yDelta that would otherwise trigger the upward-fly
-	// detection. Exempt entirely: Levitation is a server-applied gravity
-	// modifier just like Slow Falling, and Oomph exempts both.
 	if _, hasLevitation := p.EffectAmplifier(packet.EffectLevitation); hasLevitation {
 		return false, ""
 	}
-	// Server-applied knockback (SetActorMotion / MotionPredictionHints) launches
-	// the player into the air; the resulting airborne phase is legitimate.  Skip
-	// the check until the knockback grace window expires to avoid false positives
-	// on players who are knocked upward for many ticks. Mirrors Oomph's motion-
-	// update exemption for externally applied velocities.
 	if p.HasKnockbackGrace() {
 		return false, ""
 	}
-	// Players who recently exited water may briefly exhibit hover-like Y deltas
-	// while transitioning from the water surface to the ground.  Exempt during
-	// the same grace window used by NoFall/A (mirrors Oomph's water-exit grace).
 	if p.HasRecentWaterExit() {
 		return false, ""
 	}
@@ -115,24 +100,13 @@ func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 	if !airborne {
 		return false, ""
 	}
-	// Players who are swimming have near-zero Y velocity by design; exempt them
-	// to avoid false positives when treading water or swimming horizontally.
-	// Crawling players may also have unusual Y deltas near ground edges; exempt.
 	_, _, inWater, crawling, _ := p.InputSnapshotFull()
 	if inWater || crawling {
 		return false, ""
 	}
-	// Players touching terrain (ladders, vines, walls) have physics that deviate
-	// from free-fall; exempt to avoid false positives during climbing or wall
-	// sliding. Mirrors Fly/B's terrain-collision exemption: both checks require
-	// reliable simulation before flagging, and terrain contact breaks that.
 	if p.HasTerrainCollision() {
 		return false, ""
 	}
-	// Grace period: skip the entire jump arc before starting to inspect.
-	// Extend the grace period proportionally when JumpBoost is active, since
-	// the effect increases jump height and thus arc duration. Oomph accounts
-	// for this by lengthening the simulation-reliable window for JumpBoost.
 	graceTicks := flyGraceTicks
 	if amp, active := p.EffectAmplifier(packet.EffectJumpBoost); active {
 		graceTicks += int(amp+1) * flyJumpBoostGracePerLevel
@@ -140,19 +114,76 @@ func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 	if airTicks <= graceTicks {
 		return false, ""
 	}
-	// Upward-fly detection (GrimAC "Fly type 2"):
-	// After the grace period, a legitimate player must be falling (yDelta < 0).
-	// If Y delta is still above the hover threshold, the player is continuing to
-	// rise, which is only possible with a fly cheat — vanilla jump velocity has
-	// already decayed to negative by this point.
 	if yDelta > flyUpwardThreshold {
 		return true, fmt.Sprintf("upward_fly air_ticks=%d y_delta=%.4f grace=%d", airTicks, yDelta, graceTicks)
 	}
-	// Hover-fly detection: flag when the Y displacement has been near zero for
-	// enough ticks to rule out a jump apex or other transient near-zero Y-velocity
-	// scenario.
 	if hoverTicks >= flyMinHoverTicks {
 		return true, fmt.Sprintf("hover air_ticks=%d hover_ticks=%d grace=%d", airTicks, hoverTicks, graceTicks)
+	}
+	return false, ""
+}
+
+// Check evaluates the airborne state. When MovementAuth is enabled, vertical
+// delta is derived from CommittedPos instead of the client-reported Velocity.
+func (c *FlyCheck) Check(p *data.Player) (bool, string) {
+	if c.authority != nil && c.authority.MovementAuth {
+		return c.checkCommitted(p)
+	}
+	return c.CheckLegacy(p)
+}
+
+// checkCommitted uses the committed-position vertical delta for fly detection.
+// deltaY = CommittedPos[1] - PrevCommittedPos[1] is server-authoritative;
+// a positive deltaY after the grace period indicates impossible upward flight.
+func (c *FlyCheck) checkCommitted(p *data.Player) (bool, string) {
+	if !c.cfg.Enabled {
+		return false, ""
+	}
+	if p.IsCreative() {
+		return false, ""
+	}
+	if p.IsGliding() {
+		return false, ""
+	}
+	if _, hasSlowFall := p.EffectAmplifier(packet.EffectSlowFalling); hasSlowFall {
+		return false, ""
+	}
+	if _, hasLevitation := p.EffectAmplifier(packet.EffectLevitation); hasLevitation {
+		return false, ""
+	}
+	if p.HasKnockbackGrace() {
+		return false, ""
+	}
+	if p.HasRecentWaterExit() {
+		return false, ""
+	}
+	// Use the airborne counters for grace-period gating (still reliable even
+	// under MovementAuth because they are driven by committed OnGround state).
+	airborne, _, airTicks, hoverTicks, _ := p.FlySnapshot()
+	if !airborne {
+		return false, ""
+	}
+	_, _, inWater, crawling, _ := p.InputSnapshotFull()
+	if inWater || crawling {
+		return false, ""
+	}
+	if p.HasTerrainCollision() {
+		return false, ""
+	}
+	graceTicks := flyGraceTicks
+	if amp, active := p.EffectAmplifier(packet.EffectJumpBoost); active {
+		graceTicks += int(amp+1) * flyJumpBoostGracePerLevel
+	}
+	if airTicks <= graceTicks {
+		return false, ""
+	}
+	// Use committed-position vertical delta instead of client-reported Velocity.
+	deltaY := p.CommittedPos()[1] - p.PrevCommittedPos()[1]
+	if deltaY > flyUpwardThreshold {
+		return true, fmt.Sprintf("committed_upward_fly air_ticks=%d deltaY=%.4f grace=%d", airTicks, deltaY, graceTicks)
+	}
+	if hoverTicks >= flyMinHoverTicks {
+		return true, fmt.Sprintf("committed_hover air_ticks=%d hover_ticks=%d grace=%d deltaY=%.4f", airTicks, hoverTicks, graceTicks, deltaY)
 	}
 	return false, ""
 }
