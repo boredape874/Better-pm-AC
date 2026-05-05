@@ -5,8 +5,10 @@ import (
 
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
+	ac_combat "github.com/boredape874/Better-pm-AC/anticheat/combat"
 	"github.com/boredape874/Better-pm-AC/config"
 	"github.com/go-gl/mathgl/mgl32"
+	"math"
 )
 
 // attackerEyeHeight is the vertical offset from a player's feet position to
@@ -53,36 +55,63 @@ func (c *ReachCheck) DefaultMetadata() *meta.DetectionMetadata {
 
 func (*ReachCheck) Name() string { return "Reach/A" }
 
-// Check evaluates the distance between the attacker's eye position and the
-// target entity's feet position.
+// buildLookDir computes the player's look-direction unit vector from yaw/pitch.
+// Bedrock convention: yaw=0 → South (+Z), yaw=90 → West (-X).
+func buildLookDir(yaw, pitch float32) mgl32.Vec3 {
+	yawRad := float64(yaw) * math.Pi / 180
+	pitchRad := float64(pitch) * math.Pi / 180
+	return mgl32.Vec3{
+		float32(-math.Sin(yawRad) * math.Cos(pitchRad)),
+		float32(-math.Sin(pitchRad)),
+		float32(math.Cos(yawRad) * math.Cos(pitchRad)),
+	}.Normalize()
+}
+
+// Check evaluates whether the attack was within reach.
 //
-// The attacker's position stored in data.Player is feet-level (proxy.go
-// subtracts playerEyeHeight from the eye-level PlayerAuthInput coordinates).
-// We add attackerEyeHeight back here so that the distance measurement matches
-// vanilla's eye-to-target calculation rather than feet-to-target, which would
-// permit ~1.6 more blocks of reach than intended.
-func (c *ReachCheck) Check(p *data.Player, targetPos mgl32.Vec3) (bool, string) {
+// When snapshots is non-empty the multi-tick RayCaster path is used:
+//   - The attacker's look direction is cast as a ray from their eye position.
+//   - CastN checks all provided entity bbox samples (rewind window).
+//   - A swing is flagged if the ray misses entirely OR the nearest hit is
+//     beyond maxReach (including ping compensation).
+//
+// When snapshots is empty the check falls back to single-point distance
+// (legacy: distance from eye to target feet position).
+func (c *ReachCheck) Check(p *data.Player, targetPos mgl32.Vec3, snapshots ...ac_combat.BBox) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
-	feetPos := p.CurrentPosition()
-	// Convert stored feet position back to eye level for accurate reach check.
-	eyePos := mgl32.Vec3{feetPos[0], feetPos[1] + attackerEyeHeight, feetPos[2]}
-	dist := eyePos.Sub(targetPos).Len()
 
-	// Ping compensation (mirrors Oomph / GrimAC lag-compensation):
-	// The client's view of entity positions lags behind the server's by
-	// approximately RTT/2. During that window an entity can drift at most
-	// reachMaxEntitySpeed b/tick. We widen the allowed reach accordingly,
-	// capped at reachPingCompCap to limit abuse via spoofed high ping.
+	// Ping compensation (mirrors Oomph / GrimAC lag-compensation).
 	latency := p.Latency()
-	pingTicks := float32(latency.Seconds()) * 20.0 / 2.0 // one-way delay in ticks
+	pingTicks := float32(latency.Seconds()) * 20.0 / 2.0
 	pingComp := pingTicks * reachMaxEntitySpeed
 	if pingComp > reachPingCompCap {
 		pingComp = reachPingCompCap
 	}
-
 	maxReach := float32(c.cfg.MaxReach) + pingComp
+
+	feetPos := p.CurrentPosition()
+	eyePos := mgl32.Vec3{feetPos[0], feetPos[1] + attackerEyeHeight, feetPos[2]}
+
+	// Multi-tick RayCaster path (T4.3).
+	if len(snapshots) > 0 {
+		yaw, pitch := p.RotationAbsolute()
+		dir := buildLookDir(yaw, pitch)
+		result := ac_combat.CastN(eyePos, dir, snapshots, maxReach)
+		if !result.Hit {
+			// Ray missed all bboxes in the rewind window.
+			dist := eyePos.Sub(targetPos).Len()
+			return true, fmt.Sprintf("raycast_miss dist=%.3f max=%.3f ping_comp=%.3f", dist, maxReach, pingComp)
+		}
+		if result.NearestT > maxReach {
+			return true, fmt.Sprintf("raycast_reach=%.3f max=%.3f ping_comp=%.3f", result.NearestT, maxReach, pingComp)
+		}
+		return false, ""
+	}
+
+	// Fallback: single-point distance check.
+	dist := eyePos.Sub(targetPos).Len()
 	if dist > maxReach {
 		return true, fmt.Sprintf("dist=%.3f max=%.3f ping_comp=%.3f", dist, maxReach, pingComp)
 	}
