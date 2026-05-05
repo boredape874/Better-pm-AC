@@ -235,6 +235,20 @@ func (p *Proxy) clientToServer(ctx context.Context, sess *Session) error {
 			// Pass InputMode so Aim/A can exempt touch/gamepad clients.
 			p.ac.OnInput(sess.ID, typed.Tick, pos, onGround, typed.Yaw, typed.Pitch, typed.InputMode, typed.InputData)
 
+			// γ.2.8 — upstream rewrite: overwrite the packet position with the
+			// reconciler-committed (authoritative) position before the packet is
+			// forwarded to the server. This prevents the server from seeing a raw
+			// cheated position while the proxy has already applied a correction.
+			// CommittedPos is feet-level; re-add eye height to match the wire format.
+			if p.cfg.Anticheat.Authority.ReconcileEnabled {
+				committed := p.ac.CommittedPos(sess.ID)
+				typed.Position = mgl32.Vec3{
+					committed[0],
+					committed[1] + playerEyeHeight,
+					committed[2],
+				}
+			}
+
 			if typed.InputData.Load(packet.InputFlagMissedSwing) {
 				p.ac.OnSwing(sess.ID)
 			}
