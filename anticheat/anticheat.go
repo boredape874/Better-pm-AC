@@ -17,6 +17,7 @@ import (
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
 	"github.com/boredape874/Better-pm-AC/anticheat/mitigate"
+	"github.com/boredape874/Better-pm-AC/anticheat/reconcile"
 	"github.com/boredape874/Better-pm-AC/config"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/google/uuid"
@@ -134,6 +135,11 @@ type Manager struct {
 	// the proxy layer during Phase 5a integration.
 	RubberbandFunc   mitigate.RubberbandFunc
 	ServerFilterFunc mitigate.ServerFilterFunc
+
+	// corrector dispatches position-correction packets to clients when the
+	// reconciler produces an OutcomeSnap verdict. Initialised to a no-op
+	// Corrector in NewManager; actual packet wiring comes in T2.6.
+	corrector *mitigate.Corrector
 }
 
 // NewManager creates a Manager ready to process packets.
@@ -145,6 +151,7 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		detections:   make(map[uuid.UUID]playerDetections),
 		ackSystems:   make(map[uuid.UUID]*ack.System),
 		lastTickCtx:  make(map[uuid.UUID]meta.TickContext),
+		corrector:    mitigate.NewCorrector(nil), // no-op until T2.6 wires the packet hook
 		speed:        movement.NewSpeedCheck(cfg.Speed),
 		speedB:       movement.NewSpeedBCheck(cfg.SpeedB),
 		fly:          movement.NewFlyCheck(cfg.Fly),
@@ -287,6 +294,33 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 	m.mu.Lock()
 	m.lastTickCtx[id] = ctx
 	m.mu.Unlock()
+
+	// γ.2.3 — sim→reconcile→commit (feature-flagged).
+	// When ReconcileEnabled is true, we run the 3-branch Decide to determine
+	// which position to commit this tick. When the flag is off we fall back to
+	// committing the claimed position directly (transparent / no-op behaviour).
+	if m.cfg.Authority.ReconcileEnabled {
+		m.mu.RLock()
+		ackSys := m.ackSystems[id]
+		m.mu.RUnlock()
+		var hasPending bool
+		if ackSys != nil {
+			hasPending = ackSys.PendingActionsCount() > 0
+		}
+		result := reconcile.Decide(reconcile.Input{
+			Claimed:       pos,
+			Expected:      p.ExpectedPos(),
+			HasPendingAck: hasPending,
+			Tolerance:     0.5,
+		})
+		p.Commit(result.Committed)
+		p.SetExpectedPos(result.Committed)
+		if result.Outcome == reconcile.OutcomeSnap {
+			m.corrector.Send(id, result.Committed)
+		}
+	} else {
+		p.Commit(pos)
+	}
 
 	// Record arrival time for Timer/A before any state updates.
 	p.RecordInputTime()
