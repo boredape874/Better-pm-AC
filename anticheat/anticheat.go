@@ -307,15 +307,31 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 		if ackSys != nil {
 			hasPending = ackSys.PendingActionsCount() > 0
 		}
+		claimed := pos
+		expected := p.ExpectedPos()
 		result := reconcile.Decide(reconcile.Input{
-			Claimed:       pos,
-			Expected:      p.ExpectedPos(),
+			Claimed:       claimed,
+			Expected:      expected,
 			HasPendingAck: hasPending,
 			Tolerance:     0.5,
 		})
 		p.Commit(result.Committed)
 		p.SetExpectedPos(result.Committed)
-		if result.Outcome == reconcile.OutcomeSnap {
+		switch result.Outcome {
+		case reconcile.OutcomePending:
+			// Resolve the ack action for this tick pair so the ack system can
+			// track whether the client's claimed delta matches the expected correction.
+			if ackSys != nil {
+				actualDelta := claimed.Sub(expected)
+				matched, _ := ackSys.Resolve(ack.Key{ServerTick: ctx.ServerTick, ClientTick: ctx.ClientTick}, actualDelta)
+				m.log.Debug("reconcile pending: ack resolve",
+					"player", id,
+					"serverTick", ctx.ServerTick,
+					"clientTick", ctx.ClientTick,
+					"matched", matched,
+				)
+			}
+		case reconcile.OutcomeSnap:
 			m.corrector.Send(id, result.Committed)
 		}
 	} else {
