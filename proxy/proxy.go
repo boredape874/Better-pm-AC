@@ -57,6 +57,9 @@ func (p *Proxy) ListenAndServe(ctx context.Context) error {
 
 	p.log.Info("proxy listening", "addr", p.cfg.Proxy.ListenAddr, "remote", p.cfg.Proxy.RemoteAddr)
 
+	p.ac.StartTicker()
+	defer p.ac.Stop()
+
 	go func() {
 		<-ctx.Done()
 		_ = listener.Close()
