@@ -318,7 +318,10 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 		p.Commit(result.Committed)
 		p.SetExpectedPos(result.Committed)
 		switch result.Outcome {
+		case reconcile.OutcomeAccept:
+			reconcile.IncAccept()
 		case reconcile.OutcomePending:
+			reconcile.IncPending()
 			// Resolve the ack action for this tick pair so the ack system can
 			// track whether the client's claimed delta matches the expected correction.
 			if ackSys != nil {
@@ -332,6 +335,7 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 				)
 			}
 		case reconcile.OutcomeSnap:
+			reconcile.IncSnap()
 			m.corrector.Send(id, result.Committed)
 		}
 	} else {
