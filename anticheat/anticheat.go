@@ -140,6 +140,12 @@ type Manager struct {
 	// reconciler produces an OutcomeSnap verdict. Initialised to a no-op
 	// Corrector in NewManager; actual packet wiring comes in T2.6.
 	corrector *mitigate.Corrector
+
+	// onMoveWarnOnce ensures that a single deprecation warning is emitted the
+	// first time OnMove is called. OnMove is superseded by the OnInput /
+	// PlayerAuthInput path and is preserved only for legacy compatibility with
+	// non-authoritative client configurations.
+	onMoveWarnOnce sync.Once
 }
 
 // NewManager creates a Manager ready to process packets.
@@ -180,6 +186,19 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 	// Register every check so newPlayerDetections() can iterate the slice
 	// instead of enumerating fields. To add a new check: create its typed
 	// field above, then append it here — no other registry changes needed.
+	// Wire authority config into movement checks so they can switch between
+	// legacy and committed-pos paths at call time.
+	auth := &m.cfg.Authority
+	m.speed.SetAuthority(auth)
+	m.speedB.SetAuthority(auth)
+	m.fly.SetAuthority(auth)
+	m.flyB.SetAuthority(auth)
+	m.noFall.SetAuthority(auth)
+	m.noFallB.SetAuthority(auth)
+	m.noSlow.SetAuthority(auth)
+	m.phase.SetAuthority(auth)
+	m.velocity.SetAuthority(auth)
+
 	m.checks = []Detection{
 		m.speed, m.speedB,
 		m.fly, m.flyB,
@@ -337,6 +356,7 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 		case reconcile.OutcomeSnap:
 			reconcile.IncSnap()
 			m.corrector.Send(id, result.Committed)
+			p.RecordSnap()
 		}
 	} else {
 		p.Commit(pos)
@@ -344,6 +364,8 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 
 	// Record arrival time for Timer/A before any state updates.
 	p.RecordInputTime()
+	// Age the Phase/A snap-rate window by one tick.
+	p.TickSnapWindow()
 
 	// BadPacket/D: NaN/Infinity position — run before UpdatePosition so a
 	// poison packet cannot corrupt the player's position state.
@@ -520,7 +542,21 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 }
 
 // OnMove is called for legacy MovePlayer packets (non-authoritative clients).
+//
+// Deprecated: OnMove is superseded by OnInput (PlayerAuthInput) which provides
+// per-tick position, rotation, and input-flag data needed by all γ.3+ checks.
+// When MovementAuth is enabled the committed-pos pipeline runs exclusively
+// through OnInput; calling OnMove in that mode is a no-op after the warn-once
+// log so that mis-wired proxies degrade gracefully without silently skipping
+// detections.
 func (m *Manager) OnMove(id uuid.UUID, pos mgl32.Vec3, onGround bool) {
+	m.onMoveWarnOnce.Do(func() {
+		if m.log != nil {
+			m.log.Warn("OnMove is deprecated; use OnInput (PlayerAuthInput) instead — " +
+				"movement checks require per-tick committed-pos data not available via MovePlayer")
+		}
+	})
+
 	p := m.getPlayer(id)
 	det := m.getDet(id)
 	if p == nil || det == nil {
