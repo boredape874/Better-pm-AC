@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/boredape874/Better-pm-AC/anticheat/ack"
 	"github.com/boredape874/Better-pm-AC/anticheat/checks/combat"
 	"github.com/boredape874/Better-pm-AC/anticheat/checks/movement"
 	pkt "github.com/boredape874/Better-pm-AC/anticheat/checks/packet"
@@ -77,6 +78,7 @@ type Manager struct {
 	mu         sync.RWMutex
 	players    map[uuid.UUID]*data.Player
 	detections map[uuid.UUID]playerDetections
+	ackSystems map[uuid.UUID]*ack.System
 
 	lastTickCtx map[uuid.UUID]meta.TickContext // test-only mirror
 
@@ -141,6 +143,7 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		log:          log,
 		players:      make(map[uuid.UUID]*data.Player),
 		detections:   make(map[uuid.UUID]playerDetections),
+		ackSystems:   make(map[uuid.UUID]*ack.System),
 		lastTickCtx:  make(map[uuid.UUID]meta.TickContext),
 		speed:        movement.NewSpeedCheck(cfg.Speed),
 		speedB:       movement.NewSpeedBCheck(cfg.SpeedB),
@@ -205,6 +208,7 @@ func (m *Manager) AddPlayer(id uuid.UUID, username string) {
 	defer m.mu.Unlock()
 	m.players[id] = data.NewPlayer(id, username)
 	m.detections[id] = m.newPlayerDetections()
+	m.ackSystems[id] = ack.NewSystem()
 	m.log.Info("player joined", "uuid", id, "username", username)
 }
 
@@ -212,6 +216,10 @@ func (m *Manager) AddPlayer(id uuid.UUID, username string) {
 func (m *Manager) RemovePlayer(id uuid.UUID) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if sys := m.ackSystems[id]; sys != nil {
+		sys.PurgeActions()
+	}
+	delete(m.ackSystems, id)
 	delete(m.players, id)
 	delete(m.detections, id)
 	delete(m.lastTickCtx, id)

@@ -92,6 +92,22 @@ func (s *System) PendingCount() int {
 	return len(s.pending)
 }
 
+// PurgeActions removes all pending dual-clock actions.
+// Call this when the associated player disconnects.
+func (s *System) PurgeActions() {
+	s.mu.Lock()
+	s.pendingActions = make(map[Key]Action)
+	s.mu.Unlock()
+}
+
+// PendingActionsCount returns the number of unresolved dual-clock actions.
+func (s *System) PendingActionsCount() int {
+	s.mu.Lock()
+	n := len(s.pendingActions)
+	s.mu.Unlock()
+	return n
+}
+
 // compile-time contract check
 var _ meta.AckSystem = (*System)(nil)
 

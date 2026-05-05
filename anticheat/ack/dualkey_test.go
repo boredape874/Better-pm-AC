@@ -46,3 +46,18 @@ func TestResolveMismatchOnLargeDelta(t *testing.T) {
 		t.Fatalf("expected ActionTeleport in returned action, got %v", got.Kind)
 	}
 }
+
+func TestResolveExactlyAtTolerance(t *testing.T) {
+	sys := ack.NewSystem()
+	k := ack.Key{ServerTick: 300, ClientTick: 280}
+	// ExpectedDelta zero, actualDelta exactly matchTol (0.15) on one axis
+	sys.Push(k, ack.Action{Kind: ack.ActionCorrection, ExpectedDelta: mgl32.Vec3{}})
+	actual := mgl32.Vec3{0.15, 0, 0} // diff.Len() == 0.15, condition is <=
+	ok, got := sys.Resolve(k, actual)
+	if !ok {
+		t.Fatalf("expected match at exact tolerance boundary, got mismatch; action=%+v", got)
+	}
+	if got.Kind != ack.ActionCorrection {
+		t.Fatalf("expected ActionCorrection, got %v", got.Kind)
+	}
+}
