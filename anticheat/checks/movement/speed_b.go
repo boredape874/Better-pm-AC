@@ -65,7 +65,8 @@ func (c *SpeedBCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// CheckLegacy is the original aerial-speed implementation.
+// CheckLegacy is the original aerial-speed implementation
+// (γ.3.7 migration: retained as fallback when MovementAuth is disabled).
 func (c *SpeedBCheck) CheckLegacy(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""

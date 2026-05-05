@@ -56,9 +56,9 @@ func (c *NoFallBCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// Check evaluates whether the player is continuously spoofing OnGround=true
-// while their Y position is descending at speed.
-func (c *NoFallBCheck) Check(p *data.Player) (bool, string) {
+// CheckLegacy is the original GroundFallTicks-based implementation of NoFall/B
+// (γ.3.7 migration: retained as fallback when MovementAuth is disabled).
+func (c *NoFallBCheck) CheckLegacy(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
@@ -93,6 +93,54 @@ func (c *NoFallBCheck) Check(p *data.Player) (bool, string) {
 
 	if groundFallTicks >= noFallBMinSpoofTicks {
 		return true, fmt.Sprintf("ground_fall_ticks=%d y_delta=%.4f", groundFallTicks, yDelta)
+	}
+	return false, ""
+}
+
+// Check evaluates whether the player is continuously spoofing OnGround=true
+// while their Y position is descending at speed. When MovementAuth is enabled,
+// committed Y delta is used instead of client-reported Velocity[1].
+func (c *NoFallBCheck) Check(p *data.Player) (bool, string) {
+	if c.authority != nil && c.authority.MovementAuth {
+		return c.checkCommitted(p)
+	}
+	return c.CheckLegacy(p)
+}
+
+// checkCommitted uses CommittedPos Y delta for OnGround-spoof detection.
+// The committed Y delta is server-authoritative; using it prevents cheats
+// that manipulate the reported Y while still falling.
+func (c *NoFallBCheck) checkCommitted(p *data.Player) (bool, string) {
+	if !c.cfg.Enabled {
+		return false, ""
+	}
+	if p.IsCreative() {
+		return false, ""
+	}
+	if p.IsGliding() {
+		return false, ""
+	}
+	_, _, inWater, _, _ := p.InputSnapshotFull()
+	if inWater {
+		return false, ""
+	}
+	if p.HasRecentWaterExit() {
+		return false, ""
+	}
+	if p.HasKnockbackGrace() {
+		return false, ""
+	}
+
+	groundFallTicks, _, onGround := p.GroundFallSnapshot()
+	if !onGround {
+		return false, ""
+	}
+
+	// Use committed Y delta as the falling signal.
+	committedDeltaY := p.CommittedPos()[1] - p.PrevCommittedPos()[1]
+
+	if groundFallTicks >= noFallBMinSpoofTicks {
+		return true, fmt.Sprintf("committed_ground_fall_ticks=%d committed_deltaY=%.4f", groundFallTicks, committedDeltaY)
 	}
 	return false, ""
 }

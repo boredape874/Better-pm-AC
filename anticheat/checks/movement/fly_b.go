@@ -84,9 +84,9 @@ func (c *FlyBCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// Check evaluates whether the player's Y velocity is following the vanilla
-// gravity curve. Must be called after UpdatePosition.
-func (c *FlyBCheck) Check(p *data.Player) (bool, string) {
+// CheckLegacy is the original gravity-violation-ticks implementation of Fly/B
+// (γ.3.7 migration: retained as fallback when MovementAuth is disabled).
+func (c *FlyBCheck) CheckLegacy(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
@@ -137,6 +137,73 @@ func (c *FlyBCheck) Check(p *data.Player) (bool, string) {
 
 	if gravViolTicks >= flyBMinViolTicks {
 		return true, fmt.Sprintf("grav_viol_ticks=%d air_ticks=%d y_delta=%.4f", gravViolTicks, airTicks, yDelta)
+	}
+	return false, ""
+}
+
+// Check evaluates whether the player's Y velocity is following the vanilla
+// gravity curve. Must be called after UpdatePosition. When MovementAuth is
+// enabled, the committed-position vertical delta is used instead of the
+// client-reported Velocity field.
+func (c *FlyBCheck) Check(p *data.Player) (bool, string) {
+	if c.authority != nil && c.authority.MovementAuth {
+		return c.checkCommitted(p)
+	}
+	return c.CheckLegacy(p)
+}
+
+// checkCommitted uses CommittedPos vertical delta for gravity-bypass detection.
+// The committed Y delta is server-authoritative; comparing it against the vanilla
+// gravity prediction exposes float cheats even when the client spoofs Velocity.
+func (c *FlyBCheck) checkCommitted(p *data.Player) (bool, string) {
+	if !c.cfg.Enabled {
+		return false, ""
+	}
+	if p.IsCreative() {
+		return false, ""
+	}
+	if p.IsGliding() {
+		return false, ""
+	}
+	if _, hasSlowFall := p.EffectAmplifier(packet.EffectSlowFalling); hasSlowFall {
+		return false, ""
+	}
+	if _, hasLevitation := p.EffectAmplifier(packet.EffectLevitation); hasLevitation {
+		return false, ""
+	}
+	if p.HasKnockbackGrace() {
+		return false, ""
+	}
+	if p.HasRecentWaterExit() {
+		return false, ""
+	}
+
+	airborne, _, airTicks, _, gravViolTicks := p.FlySnapshot()
+	if !airborne {
+		return false, ""
+	}
+
+	_, _, inWater, crawling, _ := p.InputSnapshotFull()
+	if inWater || crawling {
+		return false, ""
+	}
+
+	if p.HasTerrainCollision() {
+		return false, ""
+	}
+
+	graceTicks := flyBGraceTicks
+	if amp, active := p.EffectAmplifier(packet.EffectJumpBoost); active {
+		graceTicks += int(amp+1) * flyJumpBoostGracePerLevel
+	}
+	if airTicks <= graceTicks {
+		return false, ""
+	}
+
+	// Use committed Y delta for gravity violation detection.
+	committedDeltaY := p.CommittedPos()[1] - p.PrevCommittedPos()[1]
+	if gravViolTicks >= flyBMinViolTicks {
+		return true, fmt.Sprintf("committed_grav_viol_ticks=%d air_ticks=%d committed_deltaY=%.4f", gravViolTicks, airTicks, committedDeltaY)
 	}
 	return false, ""
 }
