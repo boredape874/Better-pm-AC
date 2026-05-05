@@ -50,6 +50,19 @@ type AckConfig struct {
 	MarkerTimeoutTicks int `toml:"marker_timeout_ticks"`
 }
 
+// AuthorityConfig is a feature-flag block for the γ.2 Reconciliation phase.
+// All fields default to false for safe canary rollout: the system is
+// non-destructive until each flag is explicitly enabled by the operator.
+//
+//   - MovementAuth:      enable server-authoritative movement enforcement.
+//   - CombatMultiRay:    enable multi-ray combat validation (T2.5+).
+//   - ReconcileEnabled:  run the sim→reconcile→commit pipeline per tick.
+type AuthorityConfig struct {
+	MovementAuth     bool `toml:"movement_auth"    json:"movement_auth"`
+	CombatMultiRay   bool `toml:"combat_multi_ray" json:"combat_multi_ray"`
+	ReconcileEnabled bool `toml:"reconcile_enabled" json:"reconcile_enabled"`
+}
+
 // ProxyConfig holds the network addresses for the MiTM proxy.
 type ProxyConfig struct {
 	// ListenAddr is the address the proxy binds on for incoming Bedrock clients.
@@ -67,6 +80,7 @@ type AnticheatConfig struct {
 	World      WorldConfig      `toml:"world"`
 	Entity     EntityConfig     `toml:"entity"`
 	Ack        AckConfig        `toml:"ack"`
+	Authority  AuthorityConfig  `toml:"authority"`
 
 	Speed        SpeedConfig        `toml:"speed"`
 	SpeedB       SpeedBConfig       `toml:"speed_b"`
