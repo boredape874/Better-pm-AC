@@ -6,6 +6,7 @@ import (
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
 	"github.com/boredape874/Better-pm-AC/config"
+	"github.com/go-gl/mathgl/mgl32"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
@@ -39,10 +40,14 @@ const speedBGraceTicks = 3
 //
 // Implements anticheat.Detection.
 type SpeedBCheck struct {
-	cfg config.SpeedBConfig
+	cfg       config.SpeedBConfig
+	authority *config.AuthorityConfig
 }
 
 func NewSpeedBCheck(cfg config.SpeedBConfig) *SpeedBCheck { return &SpeedBCheck{cfg: cfg} }
+
+// SetAuthority wires the shared AuthorityConfig.
+func (c *SpeedBCheck) SetAuthority(a *config.AuthorityConfig) { c.authority = a }
 
 func (*SpeedBCheck) Type() string    { return "Speed" }
 func (*SpeedBCheck) SubType() string { return "B" }
@@ -60,15 +65,14 @@ func (c *SpeedBCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// Check evaluates horizontal speed while the player is airborne.
-func (c *SpeedBCheck) Check(p *data.Player) (bool, string) {
+// CheckLegacy is the original aerial-speed implementation.
+func (c *SpeedBCheck) CheckLegacy(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
 	if p.IsCreative() || p.IsGliding() {
 		return false, ""
 	}
-	// Exempt players under knockback (same reason as Speed/A).
 	if p.HasKnockbackGrace() {
 		return false, ""
 	}
@@ -76,28 +80,72 @@ func (c *SpeedBCheck) Check(p *data.Player) (bool, string) {
 	if inWater || crawling {
 		return false, ""
 	}
-
 	_, _, airTicks, _, _ := p.FlySnapshot()
-	// Only check players who are genuinely airborne past the grace period.
 	if airTicks < speedBGraceTicks {
 		return false, ""
 	}
-
 	speed := p.HorizontalSpeed()
 	maxSpeed := float32(c.cfg.MaxSpeed) * speedBAirMultiplier
-
-	// Sprint carries into the air; apply the same sprint multiplier as Speed/A.
 	sprinting, _, _, _, _ := p.InputSnapshotFull()
 	if sprinting {
 		maxSpeed *= sprintSpeedMultiplier
 	}
-
-	// Speed potion effect increases the limit proportionally (same as Speed/A).
 	if amp, active := p.EffectAmplifier(packet.EffectSpeed); active {
 		maxSpeed *= 1.0 + speedEffectBonus*float32(amp+1)
 	}
+	if amp, active := p.EffectAmplifier(packet.EffectSlowness); active {
+		maxSpeed *= 1.0 - slownessSpeedPenalty*float32(amp+1)
+		if maxSpeed < 0 {
+			maxSpeed = 0
+		}
+	}
+	if speed > maxSpeed {
+		return true, fmt.Sprintf("air_speed=%.4f max=%.4f air_ticks=%d", speed, maxSpeed, airTicks)
+	}
+	return false, ""
+}
 
-	// Slowness potion effect decreases the limit (same formula as Speed/A).
+// Check evaluates horizontal speed while the player is airborne.
+// When MovementAuth is enabled, committed-position XZ delta is used.
+func (c *SpeedBCheck) Check(p *data.Player) (bool, string) {
+	if c.authority != nil && c.authority.MovementAuth {
+		return c.checkCommitted(p)
+	}
+	return c.CheckLegacy(p)
+}
+
+// checkCommitted uses CommittedPos XZ delta for aerial speed detection.
+func (c *SpeedBCheck) checkCommitted(p *data.Player) (bool, string) {
+	if !c.cfg.Enabled {
+		return false, ""
+	}
+	if p.IsCreative() || p.IsGliding() {
+		return false, ""
+	}
+	if p.HasKnockbackGrace() {
+		return false, ""
+	}
+	_, _, inWater, crawling, _ := p.InputSnapshotFull()
+	if inWater || crawling {
+		return false, ""
+	}
+	_, _, airTicks, _, _ := p.FlySnapshot()
+	if airTicks < speedBGraceTicks {
+		return false, ""
+	}
+
+	// Horizontal delta from committed positions (server-authoritative).
+	delta := p.CommittedPos().Sub(p.PrevCommittedPos())
+	speed := mgl32.Vec2{delta[0], delta[2]}.Len()
+	maxSpeed := float32(c.cfg.MaxSpeed) * speedBAirMultiplier
+
+	sprinting, _, _, _, _ := p.InputSnapshotFull()
+	if sprinting {
+		maxSpeed *= sprintSpeedMultiplier
+	}
+	if amp, active := p.EffectAmplifier(packet.EffectSpeed); active {
+		maxSpeed *= 1.0 + speedEffectBonus*float32(amp+1)
+	}
 	if amp, active := p.EffectAmplifier(packet.EffectSlowness); active {
 		maxSpeed *= 1.0 - slownessSpeedPenalty*float32(amp+1)
 		if maxSpeed < 0 {
@@ -106,7 +154,7 @@ func (c *SpeedBCheck) Check(p *data.Player) (bool, string) {
 	}
 
 	if speed > maxSpeed {
-		return true, fmt.Sprintf("air_speed=%.4f max=%.4f air_ticks=%d", speed, maxSpeed, airTicks)
+		return true, fmt.Sprintf("committed_air_speed=%.4f max=%.4f air_ticks=%d", speed, maxSpeed, airTicks)
 	}
 	return false, ""
 }

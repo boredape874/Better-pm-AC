@@ -29,12 +29,16 @@ const noFallBMinSpoofTicks = 4
 //
 // Implements anticheat.Detection.
 type NoFallBCheck struct {
-	cfg config.NoFallBConfig
+	cfg       config.NoFallBConfig
+	authority *config.AuthorityConfig
 }
 
 func NewNoFallBCheck(cfg config.NoFallBConfig) *NoFallBCheck {
 	return &NoFallBCheck{cfg: cfg}
 }
+
+// SetAuthority wires the shared AuthorityConfig.
+func (c *NoFallBCheck) SetAuthority(a *config.AuthorityConfig) { c.authority = a }
 
 func (*NoFallBCheck) Type() string    { return "NoFall" }
 func (*NoFallBCheck) SubType() string { return "B" }

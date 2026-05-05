@@ -57,10 +57,14 @@ const flyBMinViolTicks = 5
 //
 // Implements anticheat.Detection.
 type FlyBCheck struct {
-	cfg config.FlyBConfig
+	cfg       config.FlyBConfig
+	authority *config.AuthorityConfig
 }
 
 func NewFlyBCheck(cfg config.FlyBConfig) *FlyBCheck { return &FlyBCheck{cfg: cfg} }
+
+// SetAuthority wires the shared AuthorityConfig.
+func (c *FlyBCheck) SetAuthority(a *config.AuthorityConfig) { c.authority = a }
 
 func (*FlyBCheck) Type() string    { return "Fly" }
 func (*FlyBCheck) SubType() string { return "B" }
