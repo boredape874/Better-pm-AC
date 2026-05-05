@@ -6,6 +6,7 @@ import (
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
 	"github.com/boredape874/Better-pm-AC/config"
+	"github.com/go-gl/mathgl/mgl32"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
@@ -53,10 +54,15 @@ const slownessSpeedPenalty = float32(0.15)
 // to ground-movement eliminates nearly all Speed/A false positives without
 // reducing detection of the most common speed hacks.
 type SpeedCheck struct {
-	cfg config.SpeedConfig
+	cfg       config.SpeedConfig
+	authority *config.AuthorityConfig
 }
 
 func NewSpeedCheck(cfg config.SpeedConfig) *SpeedCheck { return &SpeedCheck{cfg: cfg} }
+
+// SetAuthority wires the shared AuthorityConfig so the check can read
+// MovementAuth at call time without breaking the Detection interface.
+func (c *SpeedCheck) SetAuthority(a *config.AuthorityConfig) { c.authority = a }
 
 func (*SpeedCheck) Type() string    { return "Speed" }
 func (*SpeedCheck) SubType() string { return "A" }
@@ -74,48 +80,31 @@ func (c *SpeedCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// Check evaluates the player's horizontal displacement in blocks/tick.
-// The config MaxSpeed field is already expressed in blocks/tick (default 0.7).
-// The effective limit is scaled by sprint/sneak state and active Speed potion
-// effects so that legitimate movement is never penalised.
-func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
+// CheckLegacy is the original position-delta implementation of Speed/A
+// (γ.3.1 migration: retained as fallback when MovementAuth is disabled).
+func (c *SpeedCheck) CheckLegacy(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
-	// Creative players can legitimately move at any speed; exempt them
-	// entirely to match Oomph's creative-mode exemption in movement checks.
 	if p.IsCreative() {
 		return false, ""
 	}
-	// Exempt players that just received server-applied velocity (knockback,
-	// explosions, wind charges, etc.). The resulting speed spike is legitimate
-	// and would otherwise trigger Speed/A for several ticks.
 	if p.HasKnockbackGrace() {
 		return false, ""
 	}
-	// Only check on-ground movement.  Aerial speed is complex (knockback,
-	// terrain slopes, jump arcs) and is handled by Fly/A.
 	if !p.IsOnGround() {
 		return false, ""
 	}
-	// Skip the landing tick (the first tick the player transitions from
-	// airborne to on-ground). At that moment, Velocity still carries the
-	// momentum from the last airborne position, which can exceed the ground
-	// speed limit even for a legitimate sprint-jump. Mirrors Oomph's
-	// landing-frame grace in its ground-speed validation.
 	if p.IsJustLanded() {
 		return false, ""
 	}
 
-	speed := p.HorizontalSpeed() // blocks/tick
+	speed := p.HorizontalSpeed()
 	maxSpeed := float32(c.cfg.MaxSpeed)
 
-	// Adjust the limit based on the player's current input state.
 	sprinting, sneaking, _, crawling, usingItem := p.InputSnapshotFull()
 	switch {
 	case usingItem:
-		// Item use (eating, bow draw, shield) slows the player to ~27% of base
-		// speed. Sprint is suppressed during item use in vanilla.
 		maxSpeed *= useItemSpeedMultiplier
 	case crawling:
 		maxSpeed *= crawlSpeedMultiplier
@@ -125,17 +114,9 @@ func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
 		maxSpeed *= sneakSpeedMultiplier
 	}
 
-	// Adjust for an active Speed potion effect (effect type 1 = Speed).
-	// Speed I (amplifier 0) grants +20%, Speed II (amplifier 1) grants +40%, etc.
-	// Mirrors Oomph's attribute-based limit adjustment.
 	if amp, active := p.EffectAmplifier(packet.EffectSpeed); active {
 		maxSpeed *= 1.0 + speedEffectBonus*float32(amp+1)
 	}
-
-	// Adjust for an active Slowness potion effect (effect type 2 = Slowness).
-	// Slowness I (amplifier 0) reduces speed by 15%, Slowness II by 30%, etc.
-	// This tightens the allowed range and closes a detection gap where a player
-	// using a speed hack below the unmodified limit would pass the check.
 	if amp, active := p.EffectAmplifier(packet.EffectSlowness); active {
 		maxSpeed *= 1.0 - slownessSpeedPenalty*float32(amp+1)
 		if maxSpeed < 0 {
@@ -145,6 +126,74 @@ func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
 
 	if speed > maxSpeed {
 		return true, fmt.Sprintf("speed=%.4f max=%.4f sprint=%v sneak=%v crawl=%v usingItem=%v", speed, maxSpeed, sprinting, sneaking, crawling, usingItem)
+	}
+	return false, ""
+}
+
+// Check evaluates the player's horizontal displacement in blocks/tick.
+// When MovementAuth is enabled the check uses CommittedPos delta (server-
+// authoritative) instead of the client-reported Velocity field.
+// The config MaxSpeed field is already expressed in blocks/tick (default 0.7).
+// The effective limit is scaled by sprint/sneak state and active Speed potion
+// effects so that legitimate movement is never penalised.
+func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
+	if c.authority != nil && c.authority.MovementAuth {
+		return c.checkCommitted(p)
+	}
+	return c.CheckLegacy(p)
+}
+
+// checkCommitted is the CommittedPos-delta path for MovementAuth mode.
+// It computes the horizontal distance between this tick's and the previous
+// tick's committed (server-accepted) position instead of using the client-
+// reported Velocity field. This makes the check immune to position spoofing
+// because CommittedPos is derived from reconcile.Decide, not the raw claim.
+func (c *SpeedCheck) checkCommitted(p *data.Player) (bool, string) {
+	if !c.cfg.Enabled {
+		return false, ""
+	}
+	if p.IsCreative() {
+		return false, ""
+	}
+	if p.HasKnockbackGrace() {
+		return false, ""
+	}
+	if !p.IsOnGround() {
+		return false, ""
+	}
+	if p.IsJustLanded() {
+		return false, ""
+	}
+
+	// Horizontal delta from committed positions (server-authoritative).
+	delta := p.CommittedPos().Sub(p.PrevCommittedPos())
+	speed := mgl32.Vec2{delta[0], delta[2]}.Len()
+	maxSpeed := float32(c.cfg.MaxSpeed)
+
+	sprinting, sneaking, _, crawling, usingItem := p.InputSnapshotFull()
+	switch {
+	case usingItem:
+		maxSpeed *= useItemSpeedMultiplier
+	case crawling:
+		maxSpeed *= crawlSpeedMultiplier
+	case sprinting:
+		maxSpeed *= sprintSpeedMultiplier
+	case sneaking:
+		maxSpeed *= sneakSpeedMultiplier
+	}
+
+	if amp, active := p.EffectAmplifier(packet.EffectSpeed); active {
+		maxSpeed *= 1.0 + speedEffectBonus*float32(amp+1)
+	}
+	if amp, active := p.EffectAmplifier(packet.EffectSlowness); active {
+		maxSpeed *= 1.0 - slownessSpeedPenalty*float32(amp+1)
+		if maxSpeed < 0 {
+			maxSpeed = 0
+		}
+	}
+
+	if speed > maxSpeed {
+		return true, fmt.Sprintf("committed_speed=%.4f max=%.4f sprint=%v sneak=%v crawl=%v usingItem=%v", speed, maxSpeed, sprinting, sneaking, crawling, usingItem)
 	}
 	return false, ""
 }
