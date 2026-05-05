@@ -43,26 +43,13 @@ const speedEffectBonus = float32(0.20)
 const slownessSpeedPenalty = float32(0.15)
 
 // SpeedCheck flags players whose horizontal movement exceeds the configured
-// limit per tick. Velocity is now a raw positional delta (blocks/tick) rather
-// than a wall-clock-derived blocks/second value, matching how Oomph computes
-// displacement: it compares the positional delta from one PlayerAuthInput to
-// the next against its simulated expectation.
-//
-// The check is limited to ticks where the player is on the ground.  Aerial
-// speed is influenced by knockback, jump boost, ice momentum, and other
-// factors that are better handled by dedicated checks (Fly/A).  Restricting
-// to ground-movement eliminates nearly all Speed/A false positives without
-// reducing detection of the most common speed hacks.
+// limit per tick. Uses the CommittedPos delta (server-authoritative) so that
+// position spoofing cannot evade detection.
 type SpeedCheck struct {
-	cfg       config.SpeedConfig
-	authority *config.AuthorityConfig
+	cfg config.SpeedConfig
 }
 
 func NewSpeedCheck(cfg config.SpeedConfig) *SpeedCheck { return &SpeedCheck{cfg: cfg} }
-
-// SetAuthority wires the shared AuthorityConfig so the check can read
-// MovementAuth at call time without breaking the Detection interface.
-func (c *SpeedCheck) SetAuthority(a *config.AuthorityConfig) { c.authority = a }
 
 func (*SpeedCheck) Type() string    { return "Speed" }
 func (*SpeedCheck) SubType() string { return "A" }
@@ -80,75 +67,12 @@ func (c *SpeedCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// CheckLegacy is the original position-delta implementation of Speed/A
-// (γ.3.1 migration: retained as fallback when MovementAuth is disabled).
-func (c *SpeedCheck) CheckLegacy(p *data.Player) (bool, string) {
-	if !c.cfg.Enabled {
-		return false, ""
-	}
-	if p.IsCreative() {
-		return false, ""
-	}
-	if p.HasKnockbackGrace() {
-		return false, ""
-	}
-	if !p.IsOnGround() {
-		return false, ""
-	}
-	if p.IsJustLanded() {
-		return false, ""
-	}
-
-	speed := p.HorizontalSpeed()
-	maxSpeed := float32(c.cfg.MaxSpeed)
-
-	sprinting, sneaking, _, crawling, usingItem := p.InputSnapshotFull()
-	switch {
-	case usingItem:
-		maxSpeed *= useItemSpeedMultiplier
-	case crawling:
-		maxSpeed *= crawlSpeedMultiplier
-	case sprinting:
-		maxSpeed *= sprintSpeedMultiplier
-	case sneaking:
-		maxSpeed *= sneakSpeedMultiplier
-	}
-
-	if amp, active := p.EffectAmplifier(packet.EffectSpeed); active {
-		maxSpeed *= 1.0 + speedEffectBonus*float32(amp+1)
-	}
-	if amp, active := p.EffectAmplifier(packet.EffectSlowness); active {
-		maxSpeed *= 1.0 - slownessSpeedPenalty*float32(amp+1)
-		if maxSpeed < 0 {
-			maxSpeed = 0
-		}
-	}
-
-	if speed > maxSpeed {
-		return true, fmt.Sprintf("speed=%.4f max=%.4f sprint=%v sneak=%v crawl=%v usingItem=%v", speed, maxSpeed, sprinting, sneaking, crawling, usingItem)
-	}
-	return false, ""
-}
-
-// Check evaluates the player's horizontal displacement in blocks/tick.
-// When MovementAuth is enabled the check uses CommittedPos delta (server-
-// authoritative) instead of the client-reported Velocity field.
-// The config MaxSpeed field is already expressed in blocks/tick (default 0.7).
-// The effective limit is scaled by sprint/sneak state and active Speed potion
-// effects so that legitimate movement is never penalised.
+// Check evaluates the player's horizontal displacement in blocks/tick using
+// CommittedPos delta (server-authoritative). The config MaxSpeed field is
+// already expressed in blocks/tick (default 0.7). The effective limit is
+// scaled by sprint/sneak state and active Speed potion effects so that
+// legitimate movement is never penalised.
 func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
-	if c.authority != nil && c.authority.MovementAuth {
-		return c.checkCommitted(p)
-	}
-	return c.CheckLegacy(p)
-}
-
-// checkCommitted is the CommittedPos-delta path for MovementAuth mode.
-// It computes the horizontal distance between this tick's and the previous
-// tick's committed (server-accepted) position instead of using the client-
-// reported Velocity field. This makes the check immune to position spoofing
-// because CommittedPos is derived from reconcile.Decide, not the raw claim.
-func (c *SpeedCheck) checkCommitted(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
@@ -193,7 +117,7 @@ func (c *SpeedCheck) checkCommitted(p *data.Player) (bool, string) {
 	}
 
 	if speed > maxSpeed {
-		return true, fmt.Sprintf("committed_speed=%.4f max=%.4f sprint=%v sneak=%v crawl=%v usingItem=%v", speed, maxSpeed, sprinting, sneaking, crawling, usingItem)
+		return true, fmt.Sprintf("speed=%.4f max=%.4f sprint=%v sneak=%v crawl=%v usingItem=%v", speed, maxSpeed, sprinting, sneaking, crawling, usingItem)
 	}
 	return false, ""
 }

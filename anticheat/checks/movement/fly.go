@@ -39,22 +39,20 @@ const flyMinHoverTicks = 3
 // the hoverDeltaThreshold in data/player.go: values below this are treated as
 // near-zero by both hover and upward-fly checks.
 const flyUpwardThreshold = float32(0.005)
-// It tracks two counters updated by data.Player.UpdatePosition:
+
+// FlyCheck detects hovering and upward flight while airborne. It tracks two
+// counters updated by data.Player.UpdatePosition:
 //   - AirTicks:   consecutive ticks airborne since last grounding.
 //   - HoverTicks: consecutive ticks where |dy| < hoverDeltaThreshold.
 //
 // A player is flagged only when BOTH thresholds are met, providing a robust
 // false-positive-free signal even at the jump apex where Y velocity briefly
-// approaches zero naturally.
+// approaches zero naturally. Uses CommittedPos delta (server-authoritative).
 type FlyCheck struct {
-	cfg       config.FlyConfig
-	authority *config.AuthorityConfig
+	cfg config.FlyConfig
 }
 
 func NewFlyCheck(cfg config.FlyConfig) *FlyCheck { return &FlyCheck{cfg: cfg} }
-
-// SetAuthority wires the shared AuthorityConfig.
-func (c *FlyCheck) SetAuthority(a *config.AuthorityConfig) { c.authority = a }
 
 func (*FlyCheck) Type() string    { return "Fly" }
 func (*FlyCheck) SubType() string { return "A" }
@@ -72,70 +70,10 @@ func (c *FlyCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// CheckLegacy is the original hover/upward-fly implementation of Fly/A
-// (γ.3.2 migration: retained as fallback when MovementAuth is disabled).
-func (c *FlyCheck) CheckLegacy(p *data.Player) (bool, string) {
-	if !c.cfg.Enabled {
-		return false, ""
-	}
-	if p.IsCreative() {
-		return false, ""
-	}
-	if p.IsGliding() {
-		return false, ""
-	}
-	if _, hasSlowFall := p.EffectAmplifier(packet.EffectSlowFalling); hasSlowFall {
-		return false, ""
-	}
-	if _, hasLevitation := p.EffectAmplifier(packet.EffectLevitation); hasLevitation {
-		return false, ""
-	}
-	if p.HasKnockbackGrace() {
-		return false, ""
-	}
-	if p.HasRecentWaterExit() {
-		return false, ""
-	}
-	airborne, yDelta, airTicks, hoverTicks, _ := p.FlySnapshot()
-	if !airborne {
-		return false, ""
-	}
-	_, _, inWater, crawling, _ := p.InputSnapshotFull()
-	if inWater || crawling {
-		return false, ""
-	}
-	if p.HasTerrainCollision() {
-		return false, ""
-	}
-	graceTicks := flyGraceTicks
-	if amp, active := p.EffectAmplifier(packet.EffectJumpBoost); active {
-		graceTicks += int(amp+1) * flyJumpBoostGracePerLevel
-	}
-	if airTicks <= graceTicks {
-		return false, ""
-	}
-	if yDelta > flyUpwardThreshold {
-		return true, fmt.Sprintf("upward_fly air_ticks=%d y_delta=%.4f grace=%d", airTicks, yDelta, graceTicks)
-	}
-	if hoverTicks >= flyMinHoverTicks {
-		return true, fmt.Sprintf("hover air_ticks=%d hover_ticks=%d grace=%d", airTicks, hoverTicks, graceTicks)
-	}
-	return false, ""
-}
-
-// Check evaluates the airborne state. When MovementAuth is enabled, vertical
-// delta is derived from CommittedPos instead of the client-reported Velocity.
-func (c *FlyCheck) Check(p *data.Player) (bool, string) {
-	if c.authority != nil && c.authority.MovementAuth {
-		return c.checkCommitted(p)
-	}
-	return c.CheckLegacy(p)
-}
-
-// checkCommitted uses the committed-position vertical delta for fly detection.
+// Check evaluates the airborne state using committed-position vertical delta.
 // deltaY = CommittedPos[1] - PrevCommittedPos[1] is server-authoritative;
 // a positive deltaY after the grace period indicates impossible upward flight.
-func (c *FlyCheck) checkCommitted(p *data.Player) (bool, string) {
+func (c *FlyCheck) Check(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
@@ -158,7 +96,7 @@ func (c *FlyCheck) checkCommitted(p *data.Player) (bool, string) {
 		return false, ""
 	}
 	// Use the airborne counters for grace-period gating (still reliable even
-	// under MovementAuth because they are driven by committed OnGround state).
+	// under committed-pos mode because they are driven by committed OnGround state).
 	airborne, _, airTicks, hoverTicks, _ := p.FlySnapshot()
 	if !airborne {
 		return false, ""
@@ -180,10 +118,10 @@ func (c *FlyCheck) checkCommitted(p *data.Player) (bool, string) {
 	// Use committed-position vertical delta instead of client-reported Velocity.
 	deltaY := p.CommittedPos()[1] - p.PrevCommittedPos()[1]
 	if deltaY > flyUpwardThreshold {
-		return true, fmt.Sprintf("committed_upward_fly air_ticks=%d deltaY=%.4f grace=%d", airTicks, deltaY, graceTicks)
+		return true, fmt.Sprintf("upward_fly air_ticks=%d deltaY=%.4f grace=%d", airTicks, deltaY, graceTicks)
 	}
 	if hoverTicks >= flyMinHoverTicks {
-		return true, fmt.Sprintf("committed_hover air_ticks=%d hover_ticks=%d grace=%d deltaY=%.4f", airTicks, hoverTicks, graceTicks, deltaY)
+		return true, fmt.Sprintf("hover air_ticks=%d hover_ticks=%d grace=%d deltaY=%.4f", airTicks, hoverTicks, graceTicks, deltaY)
 	}
 	return false, ""
 }

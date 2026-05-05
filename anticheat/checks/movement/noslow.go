@@ -15,29 +15,15 @@ import (
 // speed. Cheats that bypass this restriction allow the player to sprint or walk
 // at normal speed while using items.
 //
-// Detection strategy (mirrors Oomph's NoSlow check):
-//  1. The proxy tracks "isUsingItem" via InputFlagStartUsingItem (set on entry)
-//     and clears it when InputFlagPerformItemInteraction fires (use complete or
-//     cancelled). This sticky flag is stored in data.Player.UsingItem.
-//  2. On each OnInput tick where UsingItem is true, the player's horizontal
-//     speed is compared against cfg.MaxItemUseSpeed (default 0.21 b/tick).
-//  3. If the speed exceeds the threshold the check fails.
-//
-// Exemptions:
-//   - Creative players (can use items without speed penalty on some servers).
-//   - Players under active knockback grace (server-applied velocity).
-//   - Players in water (swimming speed is subject to different rules).
+// Uses CommittedPos delta (server-authoritative) to prevent cheats that report
+// a low client velocity while actually moving at full speed.
 //
 // Implements anticheat.Detection.
 type NoSlowCheck struct {
-	cfg       config.NoSlowConfig
-	authority *config.AuthorityConfig
+	cfg config.NoSlowConfig
 }
 
 func NewNoSlowCheck(cfg config.NoSlowConfig) *NoSlowCheck { return &NoSlowCheck{cfg: cfg} }
-
-// SetAuthority wires the shared AuthorityConfig.
-func (c *NoSlowCheck) SetAuthority(a *config.AuthorityConfig) { c.authority = a }
 
 func (*NoSlowCheck) Type() string    { return "NoSlow" }
 func (*NoSlowCheck) SubType() string { return "A" }
@@ -58,47 +44,10 @@ func (c *NoSlowCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// CheckLegacy is the original horizontal-speed-during-item-use implementation
-// (γ.3.5 migration: retained as fallback when MovementAuth is disabled).
-func (c *NoSlowCheck) CheckLegacy(p *data.Player) (bool, string) {
-	if !c.cfg.Enabled {
-		return false, ""
-	}
-	_, _, inWater, _, usingItem := p.InputSnapshotFull()
-	if !usingItem {
-		return false, ""
-	}
-	if p.IsCreative() {
-		return false, ""
-	}
-	if p.HasKnockbackGrace() {
-		return false, ""
-	}
-	if inWater {
-		return false, ""
-	}
-	speed := p.HorizontalSpeed()
-	max := float32(c.cfg.MaxItemUseSpeed)
-	if speed > max {
-		return true, fmt.Sprintf("speed=%.4f max=%.4f", speed, max)
-	}
-	return false, ""
-}
-
-// Check evaluates the player's horizontal speed during active item use.
-// When MovementAuth is enabled, the speed is derived from the committed-position
-// delta to prevent cheats that manipulate the reported velocity.
+// Check evaluates the player's horizontal speed during active item use using
+// CommittedPos delta. This prevents cheats that report a low client velocity
+// while actually moving at full speed.
 func (c *NoSlowCheck) Check(p *data.Player) (bool, string) {
-	if c.authority != nil && c.authority.MovementAuth {
-		return c.checkCommitted(p)
-	}
-	return c.CheckLegacy(p)
-}
-
-// checkCommitted uses CommittedPos delta for item-use speed enforcement.
-// This prevents cheats that report a low client velocity while actually
-// moving at full speed (the committed delta reflects reconciler truth).
-func (c *NoSlowCheck) checkCommitted(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
@@ -121,7 +70,7 @@ func (c *NoSlowCheck) checkCommitted(p *data.Player) (bool, string) {
 	speed := mgl32.Vec2{delta[0], delta[2]}.Len()
 	max := float32(c.cfg.MaxItemUseSpeed)
 	if speed > max {
-		return true, fmt.Sprintf("committed_speed=%.4f max=%.4f", speed, max)
+		return true, fmt.Sprintf("speed=%.4f max=%.4f", speed, max)
 	}
 	return false, ""
 }

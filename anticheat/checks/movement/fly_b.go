@@ -30,41 +30,15 @@ const flyBGraceTicks = 20
 const flyBMinViolTicks = 5
 
 // FlyBCheck (Fly/B) detects players whose Y velocity does not decrease at the
-// rate predicted by vanilla Bedrock gravity after the initial jump arc. This
-// catches float / anti-gravity cheats that keep the player airborne without
-// triggering the Fly/A hover threshold (which requires near-zero Y delta).
-//
-// Detection strategy (mirrors Oomph's gravity-simulation validation):
-//   - On each airborne tick, data.Player.UpdatePosition computes the predicted
-//     Y delta for this tick from the previous Y delta using the vanilla formula:
-//       predictedY = (prevYDelta − 0.08) × 0.98
-//     and increments GravViolTicks if the actual Y delta exceeds this prediction
-//     by more than the tolerance (0.03 b/tick).
-//   - Fly/B reads GravViolTicks from FlySnapshot and flags when it reaches
-//     flyBMinViolTicks after the flyBGraceTicks grace period.
-//
-// Exemptions (shared with Fly/A):
-//   - Creative mode
-//   - Gliding (elytra)
-//   - Slow Falling effect
-//   - Levitation effect
-//   - JumpBoost effect (extends grace period proportionally)
-//   - Active knockback grace
-//   - Recent water exit
-//   - Actively in water or crawling
-//   - HorizontalCollision/VerticalCollision flag (player is touching terrain;
-//     ladders/vines/walls prevent standard gravity from applying)
+// rate predicted by vanilla Bedrock gravity after the initial jump arc. Uses
+// CommittedPos vertical delta (server-authoritative) for gravity-bypass detection.
 //
 // Implements anticheat.Detection.
 type FlyBCheck struct {
-	cfg       config.FlyBConfig
-	authority *config.AuthorityConfig
+	cfg config.FlyBConfig
 }
 
 func NewFlyBCheck(cfg config.FlyBConfig) *FlyBCheck { return &FlyBCheck{cfg: cfg} }
-
-// SetAuthority wires the shared AuthorityConfig.
-func (c *FlyBCheck) SetAuthority(a *config.AuthorityConfig) { c.authority = a }
 
 func (*FlyBCheck) Type() string    { return "Fly" }
 func (*FlyBCheck) SubType() string { return "B" }
@@ -84,78 +58,10 @@ func (c *FlyBCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// CheckLegacy is the original gravity-violation-ticks implementation of Fly/B
-// (γ.3.7 migration: retained as fallback when MovementAuth is disabled).
-func (c *FlyBCheck) CheckLegacy(p *data.Player) (bool, string) {
-	if !c.cfg.Enabled {
-		return false, ""
-	}
-	if p.IsCreative() {
-		return false, ""
-	}
-	if p.IsGliding() {
-		return false, ""
-	}
-	if _, hasSlowFall := p.EffectAmplifier(packet.EffectSlowFalling); hasSlowFall {
-		return false, ""
-	}
-	if _, hasLevitation := p.EffectAmplifier(packet.EffectLevitation); hasLevitation {
-		return false, ""
-	}
-	if p.HasKnockbackGrace() {
-		return false, ""
-	}
-	if p.HasRecentWaterExit() {
-		return false, ""
-	}
-
-	airborne, yDelta, airTicks, _, gravViolTicks := p.FlySnapshot()
-	if !airborne {
-		return false, ""
-	}
-
-	_, _, inWater, crawling, _ := p.InputSnapshotFull()
-	if inWater || crawling {
-		return false, ""
-	}
-
-	// Exempt if the client reports horizontal or vertical terrain collision.
-	// This covers ladders, vines, walls, and other climbable/collidable surfaces
-	// where vanilla physics deviate significantly from free-fall gravity.
-	if p.HasTerrainCollision() {
-		return false, ""
-	}
-
-	// Extend the grace period proportionally for JumpBoost (same as Fly/A).
-	graceTicks := flyBGraceTicks
-	if amp, active := p.EffectAmplifier(packet.EffectJumpBoost); active {
-		graceTicks += int(amp+1) * flyJumpBoostGracePerLevel
-	}
-	if airTicks <= graceTicks {
-		return false, ""
-	}
-
-	if gravViolTicks >= flyBMinViolTicks {
-		return true, fmt.Sprintf("grav_viol_ticks=%d air_ticks=%d y_delta=%.4f", gravViolTicks, airTicks, yDelta)
-	}
-	return false, ""
-}
-
 // Check evaluates whether the player's Y velocity is following the vanilla
-// gravity curve. Must be called after UpdatePosition. When MovementAuth is
-// enabled, the committed-position vertical delta is used instead of the
-// client-reported Velocity field.
+// gravity curve. Uses CommittedPos vertical delta (server-authoritative).
+// Must be called after UpdatePosition.
 func (c *FlyBCheck) Check(p *data.Player) (bool, string) {
-	if c.authority != nil && c.authority.MovementAuth {
-		return c.checkCommitted(p)
-	}
-	return c.CheckLegacy(p)
-}
-
-// checkCommitted uses CommittedPos vertical delta for gravity-bypass detection.
-// The committed Y delta is server-authoritative; comparing it against the vanilla
-// gravity prediction exposes float cheats even when the client spoofs Velocity.
-func (c *FlyBCheck) checkCommitted(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
@@ -188,10 +94,12 @@ func (c *FlyBCheck) checkCommitted(p *data.Player) (bool, string) {
 		return false, ""
 	}
 
+	// Exempt if the client reports horizontal or vertical terrain collision.
 	if p.HasTerrainCollision() {
 		return false, ""
 	}
 
+	// Extend the grace period proportionally for JumpBoost (same as Fly/A).
 	graceTicks := flyBGraceTicks
 	if amp, active := p.EffectAmplifier(packet.EffectJumpBoost); active {
 		graceTicks += int(amp+1) * flyJumpBoostGracePerLevel
@@ -203,7 +111,7 @@ func (c *FlyBCheck) checkCommitted(p *data.Player) (bool, string) {
 	// Use committed Y delta for gravity violation detection.
 	committedDeltaY := p.CommittedPos()[1] - p.PrevCommittedPos()[1]
 	if gravViolTicks >= flyBMinViolTicks {
-		return true, fmt.Sprintf("committed_grav_viol_ticks=%d air_ticks=%d committed_deltaY=%.4f", gravViolTicks, airTicks, committedDeltaY)
+		return true, fmt.Sprintf("grav_viol_ticks=%d air_ticks=%d deltaY=%.4f", gravViolTicks, airTicks, committedDeltaY)
 	}
 	return false, ""
 }

@@ -15,30 +15,17 @@ import (
 const noFallBMinSpoofTicks = 4
 
 // NoFallBCheck detects players that continuously send OnGround=true while their
-// Y position is still descending faster than noFallBSpeedThreshold. This pattern
-// is the signature of a "persistent OnGround spoof" NoFall cheat variant: the
-// client sets the OnGround flag on every packet so the server never accumulates
-// a fall distance, preventing the NoFall/A check from triggering.
-//
-// Algorithm (mirrors GrimAC's OnGround-spoof detection):
-//  1. Every tick where OnGround=true AND yDelta < -noFallBSpeedThreshold,
-//     increment GroundFallTicks (tracked in data.Player.UpdatePosition).
-//  2. If GroundFallTicks reaches noFallBMinSpoofTicks, flag.
-//  3. GroundFallTicks resets whenever the player is genuinely airborne or
-//     their Y delta is not significantly negative.
+// Y position is still descending faster than noFallBSpeedThreshold. Uses
+// CommittedPos Y delta (server-authoritative) for OnGround-spoof detection.
 //
 // Implements anticheat.Detection.
 type NoFallBCheck struct {
-	cfg       config.NoFallBConfig
-	authority *config.AuthorityConfig
+	cfg config.NoFallBConfig
 }
 
 func NewNoFallBCheck(cfg config.NoFallBConfig) *NoFallBCheck {
 	return &NoFallBCheck{cfg: cfg}
 }
-
-// SetAuthority wires the shared AuthorityConfig.
-func (c *NoFallBCheck) SetAuthority(a *config.AuthorityConfig) { c.authority = a }
 
 func (*NoFallBCheck) Type() string    { return "NoFall" }
 func (*NoFallBCheck) SubType() string { return "B" }
@@ -56,9 +43,10 @@ func (c *NoFallBCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// CheckLegacy is the original GroundFallTicks-based implementation of NoFall/B
-// (γ.3.7 migration: retained as fallback when MovementAuth is disabled).
-func (c *NoFallBCheck) CheckLegacy(p *data.Player) (bool, string) {
+// Check evaluates whether the player is continuously spoofing OnGround=true
+// while their Y position is descending at speed. Uses CommittedPos Y delta
+// (server-authoritative) as the falling signal.
+func (c *NoFallBCheck) Check(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
@@ -77,61 +65,14 @@ func (c *NoFallBCheck) CheckLegacy(p *data.Player) (bool, string) {
 	}
 	// Server-applied knockback can push the player downward while they are
 	// genuinely on (or very near) the ground, causing GroundFallTicks to
-	// accumulate. Exempt during the knockback grace window to avoid falsely
-	// flagging players who were hit near the ground. Mirrors Oomph's motion-
-	// update exemption for externally applied velocities.
-	if p.HasKnockbackGrace() {
-		return false, ""
-	}
-
-	groundFallTicks, yDelta, onGround := p.GroundFallSnapshot()
-
-	// Only applicable when the client claims to be on the ground.
-	if !onGround {
-		return false, ""
-	}
-
-	if groundFallTicks >= noFallBMinSpoofTicks {
-		return true, fmt.Sprintf("ground_fall_ticks=%d y_delta=%.4f", groundFallTicks, yDelta)
-	}
-	return false, ""
-}
-
-// Check evaluates whether the player is continuously spoofing OnGround=true
-// while their Y position is descending at speed. When MovementAuth is enabled,
-// committed Y delta is used instead of client-reported Velocity[1].
-func (c *NoFallBCheck) Check(p *data.Player) (bool, string) {
-	if c.authority != nil && c.authority.MovementAuth {
-		return c.checkCommitted(p)
-	}
-	return c.CheckLegacy(p)
-}
-
-// checkCommitted uses CommittedPos Y delta for OnGround-spoof detection.
-// The committed Y delta is server-authoritative; using it prevents cheats
-// that manipulate the reported Y while still falling.
-func (c *NoFallBCheck) checkCommitted(p *data.Player) (bool, string) {
-	if !c.cfg.Enabled {
-		return false, ""
-	}
-	if p.IsCreative() {
-		return false, ""
-	}
-	if p.IsGliding() {
-		return false, ""
-	}
-	_, _, inWater, _, _ := p.InputSnapshotFull()
-	if inWater {
-		return false, ""
-	}
-	if p.HasRecentWaterExit() {
-		return false, ""
-	}
+	// accumulate. Exempt during the knockback grace window.
 	if p.HasKnockbackGrace() {
 		return false, ""
 	}
 
 	groundFallTicks, _, onGround := p.GroundFallSnapshot()
+
+	// Only applicable when the client claims to be on the ground.
 	if !onGround {
 		return false, ""
 	}
@@ -140,7 +81,7 @@ func (c *NoFallBCheck) checkCommitted(p *data.Player) (bool, string) {
 	committedDeltaY := p.CommittedPos()[1] - p.PrevCommittedPos()[1]
 
 	if groundFallTicks >= noFallBMinSpoofTicks {
-		return true, fmt.Sprintf("committed_ground_fall_ticks=%d committed_deltaY=%.4f", groundFallTicks, committedDeltaY)
+		return true, fmt.Sprintf("ground_fall_ticks=%d committed_deltaY=%.4f", groundFallTicks, committedDeltaY)
 	}
 	return false, ""
 }

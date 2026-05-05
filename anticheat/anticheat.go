@@ -186,19 +186,6 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 	// Register every check so newPlayerDetections() can iterate the slice
 	// instead of enumerating fields. To add a new check: create its typed
 	// field above, then append it here — no other registry changes needed.
-	// Wire authority config into movement checks so they can switch between
-	// legacy and committed-pos paths at call time.
-	auth := &m.cfg.Authority
-	m.speed.SetAuthority(auth)
-	m.speedB.SetAuthority(auth)
-	m.fly.SetAuthority(auth)
-	m.flyB.SetAuthority(auth)
-	m.noFall.SetAuthority(auth)
-	m.noFallB.SetAuthority(auth)
-	m.noSlow.SetAuthority(auth)
-	m.phase.SetAuthority(auth)
-	m.velocity.SetAuthority(auth)
-
 	m.checks = []Detection{
 		m.speed, m.speedB,
 		m.fly, m.flyB,

@@ -37,34 +37,18 @@ const velocityAMinRatio = float32(0.15)
 
 // VelocityCheck (Velocity/A) detects Anti-KB cheats that suppress or cancel
 // the horizontal velocity applied by server-sent SetActorMotion /
-// MotionPredictionHints packets.
-//
-// Algorithm (mirrors Oomph's velocity-check approach):
-//  1. When RecordKnockback is called (proxy detected SetActorMotion / MPH),
-//     the applied XZ velocity is stored in player.pendingKnockback.
-//  2. On the first tick of each OnInput cycle, Check reads and clears
-//     pendingKnockback via KnockbackSnapshot().
-//  3. If the pending horizontal magnitude exceeds velocityAMinKB and the
-//     player's current horizontal velocity (blocks/tick) in the direction of
-//     the knockback is less than velocityAMinRatio × applied magnitude,
-//     the player is flagged.
-//
-// The check runs AFTER UpdatePosition so p.HorizontalSpeed() reflects the
-// current tick's positional delta, which is the first tick the knockback
-// effect should be visible in the client's reported position.
+// MotionPredictionHints packets. Uses CommittedPos delta (server-authoritative)
+// so that a client suppressing knockback and reporting near-zero XZ movement
+// produces a committed delta close to zero — which is exactly what we detect.
 //
 // Implements anticheat.Detection.
 type VelocityCheck struct {
-	cfg       config.VelocityConfig
-	authority *config.AuthorityConfig
+	cfg config.VelocityConfig
 }
 
 func NewVelocityCheck(cfg config.VelocityConfig) *VelocityCheck {
 	return &VelocityCheck{cfg: cfg}
 }
-
-// SetAuthority wires the shared AuthorityConfig.
-func (c *VelocityCheck) SetAuthority(a *config.AuthorityConfig) { c.authority = a }
 
 func (*VelocityCheck) Type() string    { return "Velocity" }
 func (*VelocityCheck) SubType() string { return "A" }
@@ -84,60 +68,12 @@ func (c *VelocityCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// CheckLegacy is the original ratio-based knockback-absorption implementation
-// (γ.3.6 migration: retained as fallback when MovementAuth is disabled).
-func (c *VelocityCheck) CheckLegacy(p *data.Player, kb mgl32.Vec2) (bool, string) {
-	if !c.cfg.Enabled {
-		return false, ""
-	}
-	appliedMag := float32(math.Sqrt(float64(kb[0]*kb[0] + kb[1]*kb[1])))
-	if appliedMag < velocityAMinKB {
-		return false, ""
-	}
-	if p.IsCreative() {
-		return false, ""
-	}
-	if p.IsGliding() {
-		return false, ""
-	}
-	_, _, inWater, crawling, _ := p.InputSnapshotFull()
-	if inWater || crawling {
-		return false, ""
-	}
-	vel := p.PositionDelta()
-	velXZ := mgl32.Vec2{vel[0], vel[2]}
-	playerMag := float32(math.Sqrt(float64(velXZ[0]*velXZ[0] + velXZ[1]*velXZ[1])))
-	kbDir := kb.Normalize()
-	projection := velXZ.Dot(kbDir)
-	minExpected := appliedMag * velocityAMinRatio
-	if projection < minExpected {
-		return true, fmt.Sprintf(
-			"kb=%.3f player_spd=%.3f projection=%.3f min=%.3f",
-			appliedMag, playerMag, projection, minExpected,
-		)
-	}
-	return false, ""
-}
-
 // Check evaluates whether the player absorbed the most-recently recorded
 // server-applied knockback. kb is the XZ velocity vector from the last
 // SetActorMotion / MotionPredictionHints packet (already consumed from the
 // player's pendingKnockback field by the caller before invoking Check).
-// Under MovementAuth, the check uses the committed-position delta as the
-// observed player velocity to prevent Anti-KB cheats that manipulate the
-// reported position while suppressing the actual knockback displacement.
+// Uses CommittedPos XZ delta as the observed horizontal displacement.
 func (c *VelocityCheck) Check(p *data.Player, kb mgl32.Vec2) (bool, string) {
-	if c.authority != nil && c.authority.MovementAuth {
-		return c.checkCommitted(p, kb)
-	}
-	return c.CheckLegacy(p, kb)
-}
-
-// checkCommitted uses CommittedPos delta as the observed velocity for Anti-KB
-// detection. The committed delta is server-authoritative, so a client that
-// suppresses knockback and reports near-zero XZ movement will produce a
-// committed delta close to zero — which is exactly what we detect.
-func (c *VelocityCheck) checkCommitted(p *data.Player, kb mgl32.Vec2) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
@@ -167,7 +103,7 @@ func (c *VelocityCheck) checkCommitted(p *data.Player, kb mgl32.Vec2) (bool, str
 	minExpected := appliedMag * velocityAMinRatio
 	if projection < minExpected {
 		return true, fmt.Sprintf(
-			"committed_kb=%.3f player_spd=%.3f projection=%.3f min=%.3f",
+			"kb=%.3f player_spd=%.3f projection=%.3f min=%.3f",
 			appliedMag, playerMag, projection, minExpected,
 		)
 	}
