@@ -80,6 +80,18 @@ type EntitySnapshot struct {
 	Position mgl32.Vec3
 	BBox     cube.BBox
 	Rotation mgl32.Vec2
+
+	// Extended fields for γ.4 multi-raycast combat (T4.1).
+	// Yaw and Pitch mirror Rotation[0] and Rotation[1] respectively,
+	// stored as named fields for readability in combat checks.
+	// BBoxHalfWidth and BBoxHeight are the axis-aligned bounding box
+	// dimensions extracted from BBox for direct use by the raycaster.
+	// These are populated by T4.6 from server packets; zero-values are
+	// safe and will cause CastN to treat the entity as a point target.
+	Yaw          float32
+	Pitch        float32
+	BBoxHalfWidth float32
+	BBoxHeight   float32
 }
 
 // EntityRewind stores a ring buffer of entity snapshots so combat checks can

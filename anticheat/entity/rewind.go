@@ -37,7 +37,9 @@ func NewRewindWithWindow(window int) *Rewind {
 }
 
 // Record stores one pose for rid at tick. If rid has no buffer yet, one is
-// allocated lazily.
+// allocated lazily. The new Yaw/Pitch/BBoxHalfWidth/BBoxHeight fields are
+// extracted from rot and bbox for direct use by the γ.4 raycaster. A zero
+// BBox (or one with no size) yields zero half-width/height, which is safe.
 func (r *Rewind) Record(rid uint64, tick uint64, pos mgl32.Vec3, bbox cube.BBox, rot mgl32.Vec2) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -46,7 +48,22 @@ func (r *Rewind) Record(rid uint64, tick uint64, pos mgl32.Vec3, bbox cube.BBox,
 		buf = newRingBuffer(r.window)
 		r.buffers[rid] = buf
 	}
-	buf.push(meta.EntitySnapshot{Tick: tick, Position: pos, BBox: bbox, Rotation: rot})
+	// Extract bbox dimensions. cube.BBox min/max are in world space; we want
+	// the half-width (XZ) and height (Y) relative to the entity's position.
+	bboxMin := bbox.Min()
+	bboxMax := bbox.Max()
+	halfW := float32((bboxMax[0] - bboxMin[0]) / 2.0)
+	height := float32(bboxMax[1] - bboxMin[1])
+	buf.push(meta.EntitySnapshot{
+		Tick:          tick,
+		Position:      pos,
+		BBox:          bbox,
+		Rotation:      rot,
+		Yaw:           rot[0],
+		Pitch:         rot[1],
+		BBoxHalfWidth: halfW,
+		BBoxHeight:    height,
+	})
 }
 
 // At returns the snapshot at or immediately before tick. ok is false when the
