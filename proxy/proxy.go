@@ -371,7 +371,8 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 			// PlayerAuthInput IS eye-level, hence the subtraction there, but
 			// server-sent entity positions are already feet-level).
 			p.ac.UpdateEntityPos(sess.ID, typed.EntityRuntimeID, typed.Position)
-			p.recordRewind(sess, typed.EntityRuntimeID, typed.Position, typed.Pitch, typed.HeadYaw)
+			p.recordRewind(sess, typed.EntityRuntimeID, typed.Position, typed.Pitch, typed.HeadYaw,
+				defaultPlayerHalfWidth, defaultPlayerHeight)
 
 		case *packet.AddActor:
 			// A new non-player actor has spawned.
@@ -379,18 +380,24 @@ func (p *Proxy) serverToClient(ctx context.Context, sess *Session) error {
 			// Also store the uniqueID→runtimeID mapping so RemoveActor can
 			// clean up this entity from the table.
 			p.ac.MapEntityUID(sess.ID, typed.EntityUniqueID, typed.EntityRuntimeID)
-			p.recordRewind(sess, typed.EntityRuntimeID, typed.Position, typed.Pitch, typed.HeadYaw)
+			// Use player-box defaults for unknown entity types (T4.6).
+			// Entity-type-specific sizes (e.g. 0.9×0.9 for slimes) can be
+			// added later via EntityType dispatch from ActorFlagData packets.
+			p.recordRewind(sess, typed.EntityRuntimeID, typed.Position, typed.Pitch, typed.HeadYaw,
+				defaultPlayerHalfWidth, defaultPlayerHeight)
 
 		case *packet.MovePlayer:
 			// An existing player entity has moved. MovePlayer (server→client)
 			// carries feet-level coordinates — no eye-height adjustment needed.
 			p.ac.UpdateEntityPos(sess.ID, typed.EntityRuntimeID, typed.Position)
-			p.recordRewind(sess, typed.EntityRuntimeID, typed.Position, typed.Pitch, typed.HeadYaw)
+			p.recordRewind(sess, typed.EntityRuntimeID, typed.Position, typed.Pitch, typed.HeadYaw,
+				defaultPlayerHalfWidth, defaultPlayerHeight)
 
 		case *packet.MoveActorAbsolute:
 			// An existing non-player entity has moved.
 			p.ac.UpdateEntityPos(sess.ID, typed.EntityRuntimeID, typed.Position)
-			p.recordRewind(sess, typed.EntityRuntimeID, typed.Position, typed.Rotation[0], typed.Rotation[1])
+			p.recordRewind(sess, typed.EntityRuntimeID, typed.Position, typed.Rotation[0], typed.Rotation[1],
+				defaultPlayerHalfWidth, defaultPlayerHeight)
 
 		case *packet.MoveActorDelta:
 			// MoveActorDelta is the bandwidth-optimised variant of MoveActorAbsolute
@@ -617,6 +624,12 @@ func cubePosFromBlockPos(b protocol.BlockPos) cube.Pos {
 	return cube.Pos{int(b[0]), int(b[1]), int(b[2])}
 }
 
+// defaultPlayerHalfWidth and defaultPlayerHeight are the standard Bedrock
+// player bounding box dimensions (T4.6). Used for AddPlayer, MovePlayer,
+// and AddActor (until entity-type specific sizes are implemented).
+const defaultPlayerHalfWidth = float64(0.3)
+const defaultPlayerHeight = float64(1.8)
+
 // recordRewind pushes a single entity snapshot into the per-session rewind
 // ring buffer. Called from every entity-move packet handler.
 //
@@ -625,11 +638,11 @@ func cubePosFromBlockPos(b protocol.BlockPos) cube.Pos {
 // rather than wall-clock — checks later rewind to tick - (latency ticks)
 // to reconstruct the pose the attacker saw at attack time.
 //
-// The BBox is a default 0.6×1.8 box because server-sent entity packets
-// don't carry the actual collider dimensions. A γ improvement is to read
-// MobEquipment / ActorFlagData to size per entity type (e.g. 0.9×0.9 for
-// slimes). β uses the player-box as a reasonable default.
-func (p *Proxy) recordRewind(sess *Session, rid uint64, pos mgl32.Vec3, pitch, yaw float32) {
+// halfWidth and height specify the axis-aligned bounding box half-extent and
+// height for the entity. Pass defaultPlayerHalfWidth / defaultPlayerHeight for
+// players; for AddActor use entity-type defaults (currently same defaults until
+// entity-type dispatch is wired from EntityType packets).
+func (p *Proxy) recordRewind(sess *Session, rid uint64, pos mgl32.Vec3, pitch, yaw float32, halfWidth, height float64) {
 	if sess.Rewind == nil {
 		return
 	}
@@ -638,7 +651,7 @@ func (p *Proxy) recordRewind(sess *Session, rid uint64, pos mgl32.Vec3, pitch, y
 		return
 	}
 	tick := pl.SimFrame()
-	bbox := cube.Box(-0.3, 0, -0.3, 0.3, 1.8, 0.3).Translate(mgl32toVec64(pos))
+	bbox := cube.Box(-halfWidth, 0, -halfWidth, halfWidth, height, halfWidth).Translate(mgl32toVec64(pos))
 	sess.Rewind.Record(rid, tick, pos, bbox, mgl32.Vec2{yaw, pitch})
 }
 
