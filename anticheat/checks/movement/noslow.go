@@ -6,6 +6,7 @@ import (
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
 	"github.com/boredape874/Better-pm-AC/config"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 // NoSlowCheck (NoSlow/A) detects players that move at full speed while using an
@@ -29,10 +30,14 @@ import (
 //
 // Implements anticheat.Detection.
 type NoSlowCheck struct {
-	cfg config.NoSlowConfig
+	cfg       config.NoSlowConfig
+	authority *config.AuthorityConfig
 }
 
 func NewNoSlowCheck(cfg config.NoSlowConfig) *NoSlowCheck { return &NoSlowCheck{cfg: cfg} }
+
+// SetAuthority wires the shared AuthorityConfig.
+func (c *NoSlowCheck) SetAuthority(a *config.AuthorityConfig) { c.authority = a }
 
 func (*NoSlowCheck) Type() string    { return "NoSlow" }
 func (*NoSlowCheck) SubType() string { return "A" }
@@ -53,12 +58,12 @@ func (c *NoSlowCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// Check evaluates the player's horizontal speed during active item use.
-func (c *NoSlowCheck) Check(p *data.Player) (bool, string) {
+// CheckLegacy is the original horizontal-speed-during-item-use implementation
+// (γ.3.5 migration: retained as fallback when MovementAuth is disabled).
+func (c *NoSlowCheck) CheckLegacy(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
-	// Only check while the player is actively using an item.
 	_, _, inWater, _, usingItem := p.InputSnapshotFull()
 	if !usingItem {
 		return false, ""
@@ -66,21 +71,57 @@ func (c *NoSlowCheck) Check(p *data.Player) (bool, string) {
 	if p.IsCreative() {
 		return false, ""
 	}
-	// Server-applied knockback can push the player at speed while they happen
-	// to be mid-item-use; exempt during the grace window.
 	if p.HasKnockbackGrace() {
 		return false, ""
 	}
-	// Swimming movement is exempt — underwater the speed reduction from item
-	// use is less significant and the interaction is complex.
 	if inWater {
 		return false, ""
 	}
-
 	speed := p.HorizontalSpeed()
 	max := float32(c.cfg.MaxItemUseSpeed)
 	if speed > max {
 		return true, fmt.Sprintf("speed=%.4f max=%.4f", speed, max)
+	}
+	return false, ""
+}
+
+// Check evaluates the player's horizontal speed during active item use.
+// When MovementAuth is enabled, the speed is derived from the committed-position
+// delta to prevent cheats that manipulate the reported velocity.
+func (c *NoSlowCheck) Check(p *data.Player) (bool, string) {
+	if c.authority != nil && c.authority.MovementAuth {
+		return c.checkCommitted(p)
+	}
+	return c.CheckLegacy(p)
+}
+
+// checkCommitted uses CommittedPos delta for item-use speed enforcement.
+// This prevents cheats that report a low client velocity while actually
+// moving at full speed (the committed delta reflects reconciler truth).
+func (c *NoSlowCheck) checkCommitted(p *data.Player) (bool, string) {
+	if !c.cfg.Enabled {
+		return false, ""
+	}
+	_, _, inWater, _, usingItem := p.InputSnapshotFull()
+	if !usingItem {
+		return false, ""
+	}
+	if p.IsCreative() {
+		return false, ""
+	}
+	if p.HasKnockbackGrace() {
+		return false, ""
+	}
+	if inWater {
+		return false, ""
+	}
+
+	// Horizontal delta from committed positions (server-authoritative).
+	delta := p.CommittedPos().Sub(p.PrevCommittedPos())
+	speed := mgl32.Vec2{delta[0], delta[2]}.Len()
+	max := float32(c.cfg.MaxItemUseSpeed)
+	if speed > max {
+		return true, fmt.Sprintf("committed_speed=%.4f max=%.4f", speed, max)
 	}
 	return false, ""
 }
