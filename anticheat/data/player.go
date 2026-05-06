@@ -207,6 +207,14 @@ type Player struct {
 	// on join (mirrors Oomph's exempt-on-spawn behaviour).
 	posInitialised bool
 
+	// SnapCount tracks how many times the reconciler issued an OutcomeSnap in
+	// the last snapCountWindow ticks. Phase/A uses this under MovementAuth: if
+	// the reconciler snapped the player more than snapCountThreshold times in
+	// the window it means the client was consistently reporting bad positions,
+	// which is a reliable signal of phase/teleport cheating.
+	SnapCount       int
+	snapCountWindow int // ticks remaining in the current snap-rate window
+
 	// latency is the round-trip time between the client and this proxy,
 	// measured by gophertunnel and updated each PlayerAuthInput packet.
 	// Reach/A and KillAura/A use it to apply lag compensation so that
@@ -887,6 +895,41 @@ func (p *Player) EntityPos(rid uint64) (mgl32.Vec3, bool) {
 	defer p.entityPosMu.RUnlock()
 	pos, ok := p.entityPos[rid]
 	return pos, ok
+}
+
+// snapRateWindowSize is the rolling window size (ticks) for snap-rate tracking.
+const snapRateWindowSize = 20
+
+// RecordSnap increments the snap counter and advances the rolling window.
+// Called by Manager.OnInput when reconcile.Decide returns OutcomeSnap.
+func (p *Player) RecordSnap() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.SnapCount++
+	if p.snapCountWindow <= 0 {
+		p.snapCountWindow = snapRateWindowSize
+	}
+}
+
+// TickSnapWindow should be called once per tick to age the snap counter window.
+// When the window expires, the counter resets for the next window.
+func (p *Player) TickSnapWindow() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.snapCountWindow > 0 {
+		p.snapCountWindow--
+		if p.snapCountWindow == 0 {
+			p.SnapCount = 0
+		}
+	}
+}
+
+// SnapSnapshot returns the current snap count and the window size.
+// Used by Phase/A under MovementAuth to detect persistent position correction.
+func (p *Player) SnapSnapshot() (snapCount, windowSize int) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.SnapCount, snapRateWindowSize
 }
 
 // AddViolation increments the legacy violation counter and returns the new total.
