@@ -69,3 +69,18 @@ func TestRayCastBeyondReach(t *testing.T) {
 		t.Fatal("bbox beyond maxReach should not register as hit")
 	}
 }
+
+// BenchmarkMultiRaycast measures CastN throughput across 80 entity snapshots,
+// representing the full γ.4 rewind window in a busy combat scenario.
+func BenchmarkMultiRaycast(b *testing.B) {
+	snapshots := make([]BBox, 80)
+	for i := range snapshots {
+		snapshots[i] = BBox{Pos: mgl32.Vec3{float32(i) * 0.1, 64, 0}, HalfWidth: 0.3, Height: 1.8}
+	}
+	origin := mgl32.Vec3{0, 65.6, 0}
+	dir := mgl32.Vec3{1, 0, 0}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		CastN(origin, dir, snapshots, 6.0)
+	}
+}
