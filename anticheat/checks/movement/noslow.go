@@ -6,6 +6,7 @@ import (
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
 	"github.com/boredape874/Better-pm-AC/config"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 // NoSlowCheck (NoSlow/A) detects players that move at full speed while using an
@@ -14,18 +15,8 @@ import (
 // speed. Cheats that bypass this restriction allow the player to sprint or walk
 // at normal speed while using items.
 //
-// Detection strategy (mirrors Oomph's NoSlow check):
-//  1. The proxy tracks "isUsingItem" via InputFlagStartUsingItem (set on entry)
-//     and clears it when InputFlagPerformItemInteraction fires (use complete or
-//     cancelled). This sticky flag is stored in data.Player.UsingItem.
-//  2. On each OnInput tick where UsingItem is true, the player's horizontal
-//     speed is compared against cfg.MaxItemUseSpeed (default 0.21 b/tick).
-//  3. If the speed exceeds the threshold the check fails.
-//
-// Exemptions:
-//   - Creative players (can use items without speed penalty on some servers).
-//   - Players under active knockback grace (server-applied velocity).
-//   - Players in water (swimming speed is subject to different rules).
+// Uses CommittedPos delta (server-authoritative) to prevent cheats that report
+// a low client velocity while actually moving at full speed.
 //
 // Implements anticheat.Detection.
 type NoSlowCheck struct {
@@ -53,12 +44,13 @@ func (c *NoSlowCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// Check evaluates the player's horizontal speed during active item use.
+// Check evaluates the player's horizontal speed during active item use using
+// CommittedPos delta. This prevents cheats that report a low client velocity
+// while actually moving at full speed.
 func (c *NoSlowCheck) Check(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
-	// Only check while the player is actively using an item.
 	_, _, inWater, _, usingItem := p.InputSnapshotFull()
 	if !usingItem {
 		return false, ""
@@ -66,18 +58,16 @@ func (c *NoSlowCheck) Check(p *data.Player) (bool, string) {
 	if p.IsCreative() {
 		return false, ""
 	}
-	// Server-applied knockback can push the player at speed while they happen
-	// to be mid-item-use; exempt during the grace window.
 	if p.HasKnockbackGrace() {
 		return false, ""
 	}
-	// Swimming movement is exempt — underwater the speed reduction from item
-	// use is less significant and the interaction is complex.
 	if inWater {
 		return false, ""
 	}
 
-	speed := p.HorizontalSpeed()
+	// Horizontal delta from committed positions (server-authoritative).
+	delta := p.CommittedPos().Sub(p.PrevCommittedPos())
+	speed := mgl32.Vec2{delta[0], delta[2]}.Len()
 	max := float32(c.cfg.MaxItemUseSpeed)
 	if speed > max {
 		return true, fmt.Sprintf("speed=%.4f max=%.4f", speed, max)

@@ -68,12 +68,15 @@ func (t *Tracker) HandleBlockUpdate(pos cube.Pos, rid uint32) error {
 	}
 	cx, cz := chunkXZ(pos)
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	c, ok := t.chunks[chunkKey{cx, cz}]
 	if !ok {
+		t.mu.Unlock()
 		return nil
 	}
+	prevID := c.Block(uint8(pos[0]&15), int16(pos[1]), uint8(pos[2]&15), 0)
 	c.SetBlock(uint8(pos[0]&15), int16(pos[1]), uint8(pos[2]&15), 0, rid)
+	t.mu.Unlock()
+	t.recordBlockEvent(pos, 0, prevID, rid)
 	return nil
 }
 

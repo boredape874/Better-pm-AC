@@ -1,10 +1,67 @@
 # Changelog
 
 All notable changes to Better-pm-AC are documented here. The project
-follows [Semantic Versioning](https://semver.org/) once v1.0.0 ships;
-pre-1.0 releases use `0.MINOR.PATCH` with breaking changes allowed at
-MINOR bumps. See `docs/plans/2026-04-19-work-board.md` for the live
-roadmap.
+follows [Semantic Versioning](https://semver.org/).
+
+## [v1.0.0] - 2026-05-06
+
+First stable release. Completes the full γ (gamma) work-board covering
+dual-tick reconciliation, server-authoritative movement, multi-raycast
+combat, moat hardening, world checks, and login fingerprinting.
+
+### Added
+
+#### γ.1 — Dual-Tick Foundation
+- Dual ServerTick/ClientTick tracking (`TickContext`) with Skew computation
+- 3-state position model: ExpectedPos / ClaimedPos / CommittedPos per player
+- Pure `sim.Step()` function with StepInput/StepOutput (no shared state)
+- Authority enum scaffold (AuthorityValidate / AuthorityAuthoritativeMovement / AuthorityAuthoritativeCombat)
+- AckSystem dual-clock Key+Action surface (Push/Resolve/PurgeActions)
+- Proxy lifecycle wiring: Manager.StartTicker/Stop
+
+#### γ.2 — Reconciliation Loop
+- 3-branch reconcile (Accept/Pending/Snap) via pure `reconcile.Decide()`
+- Authority feature-flag config block (ReconcileEnabled, MovementAuth, CombatMultiRay)
+- CorrectPlayerMovePrediction packet emission on Snap outcome
+- Upstream PlayerAuthInput position overwrite with CommittedPos
+- expvar reconcile counters (accepts/pendings/snaps)
+- 10 legit-scenario integration tests (FP=0)
+
+#### γ.3 — Movement Check Migration
+- Speed/A+B, Fly/A+B, NoFall/A+B, Phase/A, NoSlow/A, Velocity/A migrated to CommittedPos delta
+- Scaffold/A uses CommittedPos Y
+- OnMove path deprecated (warn-once + unsupported notice)
+- CheckLegacy branches removed — committed path is the only path
+- 5 cheat scenario integration tests
+
+#### γ.4 — Multi-Raycast Combat
+- Entity Snapshot extended with yaw/pitch/bbox fields
+- RayCaster: slab-method AABB intersect, CastN multi-snapshot nearest-hit
+- Reach/A, KillAura/A (swing-less), KillAura/B (FOV) on RayCaster
+- Server packet population of Snapshot bbox/yaw/pitch
+- BenchmarkMultiRaycast: 1480 ns/op at 80-snapshot window (target < 20 µs ✅)
+
+#### γ.5 — Moat Hardening
+- Sim: lava fluid drag (0.5), bubble column up/down forces
+- Sim: small-delta collision precision (epsilon-stuck detection)
+- World: trapdoor, fence/wall, stair bbox completeness
+- Replay harness: Recorder + Player (.bpac format), 5 synthetic golden fixtures
+
+#### γ.6 — Deferred Items
+- World: block-update history ring buffer (200 events/position)
+- World checks: Nuker/A, FastBreak/A, FastPlace/A, Tower/A, InvalidBreak/A
+- Login: LoginData capture (protocol, version, device, client ID)
+- Login checks: Protocol/A, EditionFaker/A, ClientSpoof/A
+
+### Changed
+- All movement checks now use CommittedPos as ground truth (server-authoritative)
+- OnMove (legacy MovePlayer path) deprecated; warn-once log on hit
+
+### Performance
+- OnInput 100 CCU: ~8.8 µs/player (target ≤ 10 µs ✅)
+- MultiRaycast 80-snapshot: 1480 ns/op (target < 20 µs ✅)
+
+---
 
 ## [v0.10.0-beta] — 2026-04-21
 
@@ -81,19 +138,16 @@ implemented — γ features are disabled in this build.
 - `GravViolTicks` first-tick initialization aligned with Oomph.
 - Dynamic knockback grace window after velocity packets.
 
-### Known limitations (resolved in γ)
+### Known limitations (resolved in v1.0)
 
 - `PolicyServerFilter` hook is unwired; checks configured with this
   policy log and count as `dry_run_suppressed` but do not rewrite the
-  offending packet. Server-filter wiring requires packet-pipeline
-  reordering scheduled for v0.10.0.
-- Per-check metric breakdown is deferred; operators correlate counters
-  with the structured log stream instead.
+  offending packet.
+- Per-check metric breakdown is deferred.
 - World / client / rewind check families (`3.C4.*`, `3.C5.*`,
-  `Phase 4 γ physics extensions`) are specced but not yet implemented.
+  Phase 4 γ physics extensions) are specced but not yet implemented.
 - AutoClicker/B, Aim/B, Scaffold/A rewind, and KillAura/B rewind
-  variants are deferred to γ — they need timing-sensitive fixtures or
-  the rewind-based remeasurement path that depends on Phase 4 work.
+  variants are deferred to γ.
 
 ### Upgrade notes
 

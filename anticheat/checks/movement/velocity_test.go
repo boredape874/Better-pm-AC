@@ -17,9 +17,14 @@ import (
 func velocityFixture(t *testing.T, delta mgl32.Vec3) *data.Player {
 	t.Helper()
 	p := data.NewPlayer(uuid.New(), "tester")
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
-	p.UpdatePosition(delta.Add(mgl32.Vec3{0, 64, 0}), true)
+	base := mgl32.Vec3{0, 64, 0}
+	p.UpdatePosition(base, true)
+	p.Commit(base)
+	p.UpdatePosition(base, true)
+	p.Commit(base)
+	cur := delta.Add(base)
+	p.UpdatePosition(cur, true)
+	p.Commit(cur)
 	p.SetInputFlags(false, false, false, false, false, true)
 	return p
 }

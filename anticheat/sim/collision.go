@@ -178,3 +178,52 @@ func offsetY(entity, block cube.BBox, dy float32) float32 {
 func offsetZ(entity, block cube.BBox, dz float32) float32 {
 	return float32(entity.ZOffset(block, float64(dz)))
 }
+
+// epsilonStuck returns true when pos is within a small epsilon of wall,
+// indicating the entity is numerically inside the wall surface. This handles
+// the case where floating-point rounding leaves the position slightly
+// penetrating a block boundary, which would otherwise cause the sweep to
+// compute no collision and allow ghosting through thin surfaces.
+//
+// Two cases are detected:
+//  1. Bit-exact equality: pos == wall (same IEEE754 representation).
+//  2. Tiny positive gap: pos > wall and (pos - wall) has fewer than 10 ULPs
+//     — measured as the raw uint32 difference between the floating-point
+//     representations of pos and wall (not as difference of the float values).
+//     This is equivalent to Math.ulp(wall)*10 and detects sub-1e-5 penetration
+//     at magnitudes near 1.0 (1 ULP ≈ 1.2e-7, 10 ULPs ≈ 1.2e-6).
+//
+// For detecting penetration at the coarser 1e-4 scale (as required by T5.3),
+// IsEpsilonInsideBlock uses a direct float comparison instead.
+func epsilonStuck(pos, wall float32) bool {
+	pb := math.Float32bits(pos)
+	wb := math.Float32bits(wall)
+	if pb == wb {
+		return true
+	}
+	// pos > wall: check raw ULP distance between representations.
+	if pb > wb {
+		return pb-wb < 10
+	}
+	return false
+}
+
+// epsilonInsideThreshold is the maximum penetration distance (blocks) that
+// IsEpsilonInsideBlock considers as "numerically inside" a wall.
+// 1e-4 covers rounding errors that accumulate across many ticks.
+const epsilonInsideThreshold = float32(1e-4)
+
+// IsEpsilonInsideBlock returns true when entityEdge is within epsilon of
+// blockWall, indicating the entity is numerically inside the block surface.
+// Callers should snap the position to the wall when this returns true to
+// prevent sub-ULP penetration accumulating across ticks.
+//
+// Detects both bit-exact equality and differences below epsilonInsideThreshold.
+func IsEpsilonInsideBlock(entityEdge, blockWall float32) bool {
+	if epsilonStuck(entityEdge, blockWall) {
+		return true
+	}
+	// Also catch values within the coarser 1e-4 threshold.
+	diff := entityEdge - blockWall
+	return diff > 0 && diff < epsilonInsideThreshold
+}

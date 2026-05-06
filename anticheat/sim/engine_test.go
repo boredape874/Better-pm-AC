@@ -192,3 +192,31 @@ func TestLevitationReversesGravity(t *testing.T) {
 		t.Fatalf("levitation should rise, startY=%.3f endY=%.3f", startY, s.Position[1])
 	}
 }
+
+// TestEpsilonStuckDetectsSmallPenetration verifies that a position 1e-5 inside
+// a wall surface is detected as epsilon-stuck by IsEpsilonInsideBlock.
+// This catches the sub-ULP accumulation that happens when floating-point
+// rounding leaves the entity slightly penetrating a block edge.
+func TestEpsilonStuckDetectsSmallPenetration(t *testing.T) {
+	// Wall surface at exactly x=1.0.
+	wall := float32(1.0)
+	// Entity edge 1e-5 inside the wall (entity edge > wall by 1e-5).
+	entityEdge := wall + float32(1e-5)
+
+	if !IsEpsilonInsideBlock(entityEdge, wall) {
+		t.Fatalf("1e-5 penetration should be detected as epsilon-stuck (edge=%.8f wall=%.8f)",
+			entityEdge, wall)
+	}
+}
+
+// TestEpsilonStuckNotTriggeredForLargeGap verifies that a normal position
+// (>= 1e-4 away from the wall) is NOT flagged as epsilon-stuck.
+func TestEpsilonStuckNotTriggeredForLargeGap(t *testing.T) {
+	wall := float32(1.0)
+	entityEdge := wall + float32(1e-3) // clearly outside
+
+	if IsEpsilonInsideBlock(entityEdge, wall) {
+		t.Fatalf("1e-3 gap should NOT be epsilon-stuck (edge=%.8f wall=%.8f)",
+			entityEdge, wall)
+	}
+}

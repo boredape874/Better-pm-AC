@@ -6,6 +6,7 @@ import (
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
 	"github.com/boredape874/Better-pm-AC/config"
+	"github.com/go-gl/mathgl/mgl32"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
@@ -42,16 +43,8 @@ const speedEffectBonus = float32(0.20)
 const slownessSpeedPenalty = float32(0.15)
 
 // SpeedCheck flags players whose horizontal movement exceeds the configured
-// limit per tick. Velocity is now a raw positional delta (blocks/tick) rather
-// than a wall-clock-derived blocks/second value, matching how Oomph computes
-// displacement: it compares the positional delta from one PlayerAuthInput to
-// the next against its simulated expectation.
-//
-// The check is limited to ticks where the player is on the ground.  Aerial
-// speed is influenced by knockback, jump boost, ice momentum, and other
-// factors that are better handled by dedicated checks (Fly/A).  Restricting
-// to ground-movement eliminates nearly all Speed/A false positives without
-// reducing detection of the most common speed hacks.
+// limit per tick. Uses the CommittedPos delta (server-authoritative) so that
+// position spoofing cannot evade detection.
 type SpeedCheck struct {
 	cfg config.SpeedConfig
 }
@@ -74,48 +67,36 @@ func (c *SpeedCheck) DefaultMetadata() *meta.DetectionMetadata {
 	}
 }
 
-// Check evaluates the player's horizontal displacement in blocks/tick.
-// The config MaxSpeed field is already expressed in blocks/tick (default 0.7).
-// The effective limit is scaled by sprint/sneak state and active Speed potion
-// effects so that legitimate movement is never penalised.
+// Check evaluates the player's horizontal displacement in blocks/tick using
+// CommittedPos delta (server-authoritative). The config MaxSpeed field is
+// already expressed in blocks/tick (default 0.7). The effective limit is
+// scaled by sprint/sneak state and active Speed potion effects so that
+// legitimate movement is never penalised.
 func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
-	// Creative players can legitimately move at any speed; exempt them
-	// entirely to match Oomph's creative-mode exemption in movement checks.
 	if p.IsCreative() {
 		return false, ""
 	}
-	// Exempt players that just received server-applied velocity (knockback,
-	// explosions, wind charges, etc.). The resulting speed spike is legitimate
-	// and would otherwise trigger Speed/A for several ticks.
 	if p.HasKnockbackGrace() {
 		return false, ""
 	}
-	// Only check on-ground movement.  Aerial speed is complex (knockback,
-	// terrain slopes, jump arcs) and is handled by Fly/A.
 	if !p.IsOnGround() {
 		return false, ""
 	}
-	// Skip the landing tick (the first tick the player transitions from
-	// airborne to on-ground). At that moment, Velocity still carries the
-	// momentum from the last airborne position, which can exceed the ground
-	// speed limit even for a legitimate sprint-jump. Mirrors Oomph's
-	// landing-frame grace in its ground-speed validation.
 	if p.IsJustLanded() {
 		return false, ""
 	}
 
-	speed := p.HorizontalSpeed() // blocks/tick
+	// Horizontal delta from committed positions (server-authoritative).
+	delta := p.CommittedPos().Sub(p.PrevCommittedPos())
+	speed := mgl32.Vec2{delta[0], delta[2]}.Len()
 	maxSpeed := float32(c.cfg.MaxSpeed)
 
-	// Adjust the limit based on the player's current input state.
 	sprinting, sneaking, _, crawling, usingItem := p.InputSnapshotFull()
 	switch {
 	case usingItem:
-		// Item use (eating, bow draw, shield) slows the player to ~27% of base
-		// speed. Sprint is suppressed during item use in vanilla.
 		maxSpeed *= useItemSpeedMultiplier
 	case crawling:
 		maxSpeed *= crawlSpeedMultiplier
@@ -125,17 +106,9 @@ func (c *SpeedCheck) Check(p *data.Player) (bool, string) {
 		maxSpeed *= sneakSpeedMultiplier
 	}
 
-	// Adjust for an active Speed potion effect (effect type 1 = Speed).
-	// Speed I (amplifier 0) grants +20%, Speed II (amplifier 1) grants +40%, etc.
-	// Mirrors Oomph's attribute-based limit adjustment.
 	if amp, active := p.EffectAmplifier(packet.EffectSpeed); active {
 		maxSpeed *= 1.0 + speedEffectBonus*float32(amp+1)
 	}
-
-	// Adjust for an active Slowness potion effect (effect type 2 = Slowness).
-	// Slowness I (amplifier 0) reduces speed by 15%, Slowness II by 30%, etc.
-	// This tightens the allowed range and closes a detection gap where a player
-	// using a speed hack below the unmodified limit would pass the check.
 	if amp, active := p.EffectAmplifier(packet.EffectSlowness); active {
 		maxSpeed *= 1.0 - slownessSpeedPenalty*float32(amp+1)
 		if maxSpeed < 0 {

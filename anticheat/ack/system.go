@@ -4,15 +4,43 @@ import (
 	"sync"
 
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
+	"github.com/go-gl/mathgl/mgl32"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
+
+// Key identifies a dual-clock acknowledgement by the server tick and client
+// tick at which an authoritative correction was sent.
+type Key struct {
+	ServerTick uint64
+	ClientTick uint64
+}
+
+// ActionKind classifies the correction that requires acknowledgement.
+type ActionKind int
+
+const (
+	ActionUnknown    ActionKind = iota
+	ActionKnockback             // velocity impulse from server
+	ActionTeleport              // position teleport
+	ActionCorrection            // generic position correction
+)
+
+// Action describes a pending correction whose acknowledgement we expect.
+type Action struct {
+	Kind          ActionKind
+	ExpectedDelta mgl32.Vec3 // expected positional delta on acknowledgement
+}
+
+// matchTol is the Euclidean tolerance for considering a resolved delta a match.
+const matchTol = 0.15
 
 // System implements meta.AckSystem. It hands out NetworkStackLatency markers
 // on Dispatch and resolves their callbacks when the client echoes the
 // matching timestamp back through OnResponse.
 type System struct {
-	mu      sync.Mutex
-	pending map[int64]entry
+	mu             sync.Mutex
+	pending        map[int64]entry
+	pendingActions map[Key]Action
 }
 
 type entry struct {
@@ -21,7 +49,10 @@ type entry struct {
 
 // NewSystem builds an empty System.
 func NewSystem() *System {
-	return &System{pending: make(map[int64]entry)}
+	return &System{
+		pending:        make(map[int64]entry),
+		pendingActions: make(map[Key]Action),
+	}
 }
 
 // Dispatch allocates a marker timestamp, stores cb against it, and returns the
@@ -61,5 +92,47 @@ func (s *System) PendingCount() int {
 	return len(s.pending)
 }
 
+// PurgeActions removes all pending dual-clock actions.
+// Call this when the associated player disconnects.
+func (s *System) PurgeActions() {
+	s.mu.Lock()
+	s.pendingActions = make(map[Key]Action)
+	s.mu.Unlock()
+}
+
+// PendingActionsCount returns the number of unresolved dual-clock actions.
+func (s *System) PendingActionsCount() int {
+	s.mu.Lock()
+	n := len(s.pendingActions)
+	s.mu.Unlock()
+	return n
+}
+
 // compile-time contract check
 var _ meta.AckSystem = (*System)(nil)
+
+// Push registers a correction Action under the given dual-clock Key.
+// The action will be matched when the client acknowledges the tick pair.
+func (s *System) Push(k Key, a Action) {
+	s.mu.Lock()
+	s.pendingActions[k] = a
+	s.mu.Unlock()
+}
+
+// Resolve looks up the pending Action for k. If found, it removes the entry
+// and returns (true, action) when actualDelta is within matchTol of
+// action.ExpectedDelta, or (false, action) when the delta is too large.
+// If no action is pending for k, it returns (false, Action{}).
+func (s *System) Resolve(k Key, actualDelta mgl32.Vec3) (bool, Action) {
+	s.mu.Lock()
+	a, ok := s.pendingActions[k]
+	if ok {
+		delete(s.pendingActions, k)
+	}
+	s.mu.Unlock()
+	if !ok {
+		return false, Action{}
+	}
+	diff := actualDelta.Sub(a.ExpectedDelta)
+	return diff.Len() <= matchTol, a
+}

@@ -37,21 +37,9 @@ const velocityAMinRatio = float32(0.15)
 
 // VelocityCheck (Velocity/A) detects Anti-KB cheats that suppress or cancel
 // the horizontal velocity applied by server-sent SetActorMotion /
-// MotionPredictionHints packets.
-//
-// Algorithm (mirrors Oomph's velocity-check approach):
-//  1. When RecordKnockback is called (proxy detected SetActorMotion / MPH),
-//     the applied XZ velocity is stored in player.pendingKnockback.
-//  2. On the first tick of each OnInput cycle, Check reads and clears
-//     pendingKnockback via KnockbackSnapshot().
-//  3. If the pending horizontal magnitude exceeds velocityAMinKB and the
-//     player's current horizontal velocity (blocks/tick) in the direction of
-//     the knockback is less than velocityAMinRatio × applied magnitude,
-//     the player is flagged.
-//
-// The check runs AFTER UpdatePosition so p.HorizontalSpeed() reflects the
-// current tick's positional delta, which is the first tick the knockback
-// effect should be visible in the client's reported position.
+// MotionPredictionHints packets. Uses CommittedPos delta (server-authoritative)
+// so that a client suppressing knockback and reporting near-zero XZ movement
+// produces a committed delta close to zero — which is exactly what we detect.
 //
 // Implements anticheat.Detection.
 type VelocityCheck struct {
@@ -84,48 +72,34 @@ func (c *VelocityCheck) DefaultMetadata() *meta.DetectionMetadata {
 // server-applied knockback. kb is the XZ velocity vector from the last
 // SetActorMotion / MotionPredictionHints packet (already consumed from the
 // player's pendingKnockback field by the caller before invoking Check).
+// Uses CommittedPos XZ delta as the observed horizontal displacement.
 func (c *VelocityCheck) Check(p *data.Player, kb mgl32.Vec2) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
 	}
-
 	appliedMag := float32(math.Sqrt(float64(kb[0]*kb[0] + kb[1]*kb[1])))
 	if appliedMag < velocityAMinKB {
-		// Applied impulse too small to produce a meaningful signal.
 		return false, ""
 	}
-
-	// Creative players can teleport and have unusual movement; exempt.
 	if p.IsCreative() {
 		return false, ""
 	}
-	// Gliding players absorb knockback very differently due to elytra thrust.
 	if p.IsGliding() {
 		return false, ""
 	}
-	// Water and crawling both alter knockback physics significantly: water drag
-	// exponentially decays horizontal velocity so the ratio-based threshold
-	// becomes unreliable; crawling physics are non-standard. Exempt both to
-	// avoid false positives (mirrors Oomph's water-state exemption in velocity
-	// absorption validation).
 	_, _, inWater, crawling, _ := p.InputSnapshotFull()
 	if inWater || crawling {
 		return false, ""
 	}
 
-	// Measure the player's horizontal speed on the current tick.
-	// For direction-aware comparison, also project the velocity onto the
-	// knockback direction and check both magnitude and projection.
-	vel := p.PositionDelta()
-	velXZ := mgl32.Vec2{vel[0], vel[2]}
+	// Use committed-position XZ delta as the observed horizontal displacement.
+	// An Anti-KB client suppresses velocity, producing near-zero committed delta.
+	committedDelta := p.CommittedPos().Sub(p.PrevCommittedPos())
+	velXZ := mgl32.Vec2{committedDelta[0], committedDelta[2]}
 	playerMag := float32(math.Sqrt(float64(velXZ[0]*velXZ[0] + velXZ[1]*velXZ[1])))
 
-	// Compute the dot product of the player's velocity and the knockback
-	// direction. If the projection onto the knockback direction is less than
-	// velocityAMinRatio × appliedMag, the player has suppressed the knockback.
 	kbDir := kb.Normalize()
 	projection := velXZ.Dot(kbDir)
-
 	minExpected := appliedMag * velocityAMinRatio
 	if projection < minExpected {
 		return true, fmt.Sprintf(

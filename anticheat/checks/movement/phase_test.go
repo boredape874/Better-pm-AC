@@ -7,20 +7,16 @@ import (
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
 	"github.com/boredape874/Better-pm-AC/config"
-	"github.com/go-gl/mathgl/mgl32"
 	"github.com/google/uuid"
 )
 
-// phaseFixture produces a player whose last position delta is the given
-// offset from the origin. The first position is the origin so
-// posInitialised becomes true on the second update; the third call sets the
-// intended delta. Ground state is set to true to match most scenarios.
-func phaseFixture(t *testing.T, delta mgl32.Vec3) *data.Player {
-	t.Helper()
+// snapFixture produces a player with the given number of reconciler snaps
+// recorded (simulating the Phase/A committed-pos signal path).
+func snapFixture(n int) *data.Player {
 	p := data.NewPlayer(uuid.New(), "tester")
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
-	p.UpdatePosition(mgl32.Vec3{0, 64, 0}, true)
-	p.UpdatePosition(delta.Add(mgl32.Vec3{0, 64, 0}), true)
+	for i := 0; i < n; i++ {
+		p.RecordSnap()
+	}
 	return p
 }
 
@@ -28,44 +24,42 @@ func newPhaseACheck() *PhaseACheck {
 	return NewPhaseACheck(config.PhaseAConfig{Enabled: true, Policy: "kick", Violations: 3})
 }
 
-// TestPhaseALegalSprintJumpDoesNotFlag: a sprint-jump produces at most
-// ~1 b/tick horizontal + ~0.4 b/tick vertical ≈ 1.1 b/tick 3D; well under 6.
-func TestPhaseALegalSprintJumpDoesNotFlag(t *testing.T) {
-	p := phaseFixture(t, mgl32.Vec3{0.91, 0.42, 0})
+// TestPhaseALegalSnapRateDoesNotFlag: zero snaps should not flag.
+func TestPhaseALegalSnapRateDoesNotFlag(t *testing.T) {
+	p := snapFixture(0)
 	if flagged, info := newPhaseACheck().Check(p, false); flagged {
-		t.Fatalf("legal sprint-jump flagged: %s", info)
+		t.Fatalf("zero snaps flagged: %s", info)
 	}
 }
 
-// TestPhaseATeleportCheatFlags: a 10-block jump in one tick is physically
-// impossible without a teleport.
+// TestPhaseATeleportCheatFlags: more than phaseASnapThreshold snaps flags.
 func TestPhaseATeleportCheatFlags(t *testing.T) {
-	p := phaseFixture(t, mgl32.Vec3{10, 0, 0})
+	p := snapFixture(phaseASnapThreshold + 2)
 	flagged, info := newPhaseACheck().Check(p, false)
 	if !flagged {
 		t.Fatal("10-block jump in one tick did not flag")
 	}
-	if !strings.Contains(info, "delta=") {
-		t.Fatalf("info missing delta field: %q", info)
+	if !strings.Contains(info, "snap_rate=") {
+		t.Fatalf("info missing snap_rate field: %q", info)
 	}
 }
 
-// TestPhaseABoundaryWithinLimit: at exactly the 6-block limit (3-4-5
-// triangle = 5 blocks) → pass. 7-block delta → flag.
+// TestPhaseABoundaryWithinLimit: exactly at threshold does not flag; one over does.
 func TestPhaseABoundaryWithinLimit(t *testing.T) {
 	c := newPhaseACheck()
-	if flagged, _ := c.Check(phaseFixture(t, mgl32.Vec3{3, 0, 4}), false); flagged {
-		t.Fatal("5-block diagonal (within 6.0 cap) flagged")
+	// Exactly at threshold (not strictly greater) → no flag.
+	if flagged, _ := c.Check(snapFixture(phaseASnapThreshold), false); flagged {
+		t.Fatal("snap count at threshold should not flag (check is strictly greater)")
 	}
-	if flagged, _ := c.Check(phaseFixture(t, mgl32.Vec3{7, 0, 0}), false); !flagged {
-		t.Fatal("7-block delta above 6.0 cap did not flag")
+	// One above threshold → flag.
+	if flagged, _ := c.Check(snapFixture(phaseASnapThreshold+1), false); !flagged {
+		t.Fatal("snap count above threshold did not flag")
 	}
 }
 
-// TestPhaseATeleportGraceSkipsCheck: even a 100-block delta must NOT flag
-// while teleportGrace is true — the server just moved the player.
+// TestPhaseATeleportGraceSkipsCheck: teleport grace must suppress Phase/A.
 func TestPhaseATeleportGraceSkipsCheck(t *testing.T) {
-	p := phaseFixture(t, mgl32.Vec3{100, 0, 0})
+	p := snapFixture(phaseASnapThreshold + 5)
 	if flagged, _ := newPhaseACheck().Check(p, true); flagged {
 		t.Fatal("teleport-grace should suppress Phase/A")
 	}

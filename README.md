@@ -6,7 +6,17 @@
 플레이어 → [Better-pm-AC 프록시] → (RakNet/UDP) → [PMMP 서버]
 ```
 
-현재 버전: **v0.10.0-beta**. β 릴리스는 17 종 체크 + 시뮬레이터 + 월드 트래커 + rewind 버퍼까지 포함합니다. γ 스펙(Phase 4 physics / world-block / client fingerprint checks)은 `docs/check-specs/` 에 문서화되어 있고 구현 진행 중입니다 (`CHANGELOG.md` 참조).
+현재 버전: **v1.0.0**. γ 스펙 전체(dual-tick reconciliation / server-authoritative movement / multi-raycast combat / moat hardening / world checks / login fingerprinting) 구현 완료. 자세한 변경 이력은 `CHANGELOG.md` 를 참조하세요.
+
+---
+
+## v1.0 에서 새로워진 것
+
+- **Dual-Tick Reconciliation (γ.1–γ.2)** — ServerTick/ClientTick 이중 클럭 + 3-branch reconcile(Accept/Pending/Snap). `CorrectPlayerMovePrediction` 으로 클라이언트를 서버 권위 위치로 교정.
+- **Server-Authoritative Movement (γ.3)** — 모든 이동 체크가 CommittedPos 기반으로 재작성. OnMove 레거시 경로 deprecated.
+- **Multi-Raycast Combat (γ.4)** — slab-method AABB RayCaster + CastN 멀티 스냅샷. Reach/A · KillAura/A(swing-less) · KillAura/B(FOV) 정밀도 대폭 향상. 1480 ns/op @ 80-snapshot.
+- **Moat Hardening (γ.5)** — 용암 drag, bubble column 힘, trapdoor/fence/stair bbox 보정. .bpac 리플레이 하네스(Recorder + Player) + 골든 픽스처 5개.
+- **World & Login Checks (γ.6)** — Nuker/A · FastBreak/A · FastPlace/A · Tower/A · InvalidBreak/A · Protocol/A · EditionFaker/A · ClientSpoof/A 신규 추가.
 
 ---
 
@@ -25,27 +35,39 @@
 
 ---
 
-## 탑재 체크 (β 스코프 17 종)
+## 탑재 체크 (v1.0 — 30 종)
 
 | 카테고리 | 체크 | 설명 |
 |---|---|---|
-| Movement | **Speed/A** | 수평 이동 속도 상한 초과 (기본 0.4 b/tick) |
-| Movement | **Fly/A** | 공중에서 호버링·슬로우 낙하 감지 (GravViolTicks 누적) |
-| Movement | **NoFall/A** | 낙하 거리 vs. 받은 데미지 불일치 — vanilla 공식 대비 |
-| Movement | **Phase/A** | 텔레포트 없이 벽을 관통한 비정상 Δpos 감지 |
+| Movement | **Speed/A** | 수평 이동 속도 상한 초과 (CommittedPos 기반) |
+| Movement | **Speed/B** | 공중 수평 속도 초과 (CommittedPos 기반) |
+| Movement | **Fly/A** | 공중에서 호버링·슬로우 낙하 감지 (CommittedPos Y) |
+| Movement | **Fly/B** | 중력 bypass 감지 (CommittedPos 수직 delta) |
+| Movement | **NoFall/A** | 낙하 거리 vs. 받은 데미지 불일치 (CommittedPos Y) |
+| Movement | **NoFall/B** | NoFall B 변종 (CommittedPos 기반) |
+| Movement | **Phase/A** | snap-rate 신호 + CommittedPos 벽 관통 감지 |
 | Movement | **NoSlow/A** | 먹기/활/방패 사용 중 이동 속도 제한 우회 감지 |
 | Movement | **Velocity/A** | 서버가 준 knockback 을 클라가 무시(Anti-KB) 감지 |
-| Combat | **Reach/A** | 공격 범위 3.1 b 초과 (1-block ping 보정 포함) |
+| Movement | **Scaffold/A** | CommittedPos Y 기반 scaffold tower 감지 |
+| Combat | **Reach/A** | RayCaster CastN 멀티 스냅샷 기반 공격 범위 초과 |
 | Combat | **AutoClicker/A** | CPS 16 초과 |
 | Combat | **Aim/A** | round-match 3e-5 / 1e-3 idle-gate (mouse 전용) |
-| Combat | **KillAura/A** | 팔 흔들기 없이 공격 (swing-less hit) |
-| Combat | **KillAura/B** | 시야각 90° 밖 타깃 공격 |
+| Combat | **KillAura/A** | 팔 흔들기 없이 공격 (swing-less hit, RayCaster) |
+| Combat | **KillAura/B** | 시야각(FOV) 밖 타깃 공격 (RayCaster nearest-hit angle) |
 | Combat | **KillAura/C** | 한 틱에 여러 타깃 동시 공격 |
 | Packet | **BadPacket/A** | 잘못된 `PlayerAuthInput.Tick` 순서 |
 | Packet | **BadPacket/B** | Pitch 범위 (±90°) 초과 |
 | Packet | **BadPacket/C** | Sprint + Sneak 동시 플래그 (vanilla 불가능) |
 | Packet | **BadPacket/D** | NaN/Infinity 좌표 (poison packet) |
 | Packet | **BadPacket/E** | Start* / Stop* 플래그 동시 세팅 (모순 bitset) |
+| World | **Nuker/A** | 멀티 블록 동시 파괴 속도 이상 |
+| World | **FastBreak/A** | 채굴 시간 미만 블록 파괴 |
+| World | **FastPlace/A** | 블록 설치 속도 상한 초과 |
+| World | **Tower/A** | jump-place 체인 tower 감지 |
+| World | **InvalidBreak/A** | LOS raycast 실패 — 시야 밖 블록 파괴 |
+| Login | **Protocol/A** | 알려지지 않은 프로토콜 버전 연결 차단 |
+| Login | **EditionFaker/A** | version-protocol 불일치 (에디션 위장) |
+| Login | **ClientSpoof/A** | device-model / client-ID 불일치 |
 
 체크 설정은 `config.toml` 의 `[anticheat.<name>]` 섹션으로 항목별 토글·임계값·정책을 바꿀 수 있습니다. 정책 옵션은 `kick` / `client_rubberband` / `server_filter` / `none` — 자세한 내용은 `docs/ops-runbook.md` 참조.
 
@@ -104,8 +126,8 @@ Better-pm-AC/
 │       ├── movement/               # Speed / Fly / NoFall / NoSlow / Phase / Velocity / Timer / Scaffold
 │       ├── combat/                 # Reach / KillAura(A/B/C) / AutoClicker / Aim
 │       ├── packet/                 # BadPacket A~E
-│       ├── world/                  # (γ 구현 중) FastPlace / Nuker / InvalidBreak ...
-│       └── client/                 # (γ 구현 중) Protocol / EditionFaker / ClientSpoof
+│       ├── world/                  # Nuker / FastBreak / FastPlace / Tower / InvalidBreak
+│       └── client/                 # Protocol / EditionFaker / ClientSpoof
 ├── bench/loadtest_test.go          # 100 CCU / OnAttack / 세션 churn 벤치
 ├── docs/
 │   ├── check-specs/                # 체크별 스펙 문서
@@ -213,10 +235,10 @@ violations = 1                 # 단발로 킥 (명백한 프로토콜 위반)
 
 ## 개발 현황
 
-- **β (v0.10.0-beta)** — Phase 1 foundation + Phase 2 시뮬레이터/월드/rewind/ack + Phase 3 체크 17종 + Phase 5 릴리스 인프라 (CI, 메트릭, 통합/벤치 하네스, 런북). `CHANGELOG.md` 의 "Known limitations" 섹션이 γ 에 남은 항목을 명시합니다.
-- **γ (진행 중)** — Phase 4 물리 확장(Elytra/Riptide/Wind charge/Powder snow/Honey/Cobweb/Scaffolding/Slime) · 월드 의존 블록 체크(Nuker/FastBreak/FastPlace/Tower/InvalidBreak) · 로그인 fingerprint 체크(Protocol/EditionFaker/ClientSpoof) · ServerFilter hook 배선 · per-check 메트릭 breakdown.
+- **v1.0.0** ✅ — γ 스펙 전체 완료. dual-tick reconciliation · server-authoritative movement · multi-raycast combat · moat hardening · world checks · login fingerprinting 모두 구현. 30 종 체크, 100 CCU @ ~8.8 µs/player.
+- **β (v0.10.0-beta)** — Phase 1–5 기반. 17 종 체크 + 시뮬레이터 + 월드 트래커 + rewind 버퍼.
 
-로드맵 세부: `docs/plans/2026-04-19-work-board.md`.
+변경 이력 전체: `CHANGELOG.md`. 로드맵 문서: `docs/plans/2026-04-19-work-board.md`.
 
 ---
 

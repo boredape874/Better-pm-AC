@@ -82,3 +82,26 @@ func (m *DetectionMetadata) Pass(sub float64) {
 func (m *DetectionMetadata) Exceeded() bool {
 	return m.Violations >= m.MaxViolations
 }
+
+// Authority describes how a Detection participates in the dual-tick model.
+// Validate (zero value) is a passive observer reading CommittedPos.
+// AuthoritativeMovement / AuthoritativeCombat declare that the check
+// drives mitigation snaps via mitigate.Dispatcher.
+type Authority int
+
+const (
+	AuthorityValidate Authority = iota
+	AuthorityAuthoritativeMovement
+	AuthorityAuthoritativeCombat
+)
+
+func (a Authority) String() string {
+	switch a {
+	case AuthorityAuthoritativeMovement:
+		return "authoritative_movement"
+	case AuthorityAuthoritativeCombat:
+		return "authoritative_combat"
+	default:
+		return "validate"
+	}
+}

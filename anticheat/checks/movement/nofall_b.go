@@ -15,17 +15,8 @@ import (
 const noFallBMinSpoofTicks = 4
 
 // NoFallBCheck detects players that continuously send OnGround=true while their
-// Y position is still descending faster than noFallBSpeedThreshold. This pattern
-// is the signature of a "persistent OnGround spoof" NoFall cheat variant: the
-// client sets the OnGround flag on every packet so the server never accumulates
-// a fall distance, preventing the NoFall/A check from triggering.
-//
-// Algorithm (mirrors GrimAC's OnGround-spoof detection):
-//  1. Every tick where OnGround=true AND yDelta < -noFallBSpeedThreshold,
-//     increment GroundFallTicks (tracked in data.Player.UpdatePosition).
-//  2. If GroundFallTicks reaches noFallBMinSpoofTicks, flag.
-//  3. GroundFallTicks resets whenever the player is genuinely airborne or
-//     their Y delta is not significantly negative.
+// Y position is still descending faster than noFallBSpeedThreshold. Uses
+// CommittedPos Y delta (server-authoritative) for OnGround-spoof detection.
 //
 // Implements anticheat.Detection.
 type NoFallBCheck struct {
@@ -53,7 +44,8 @@ func (c *NoFallBCheck) DefaultMetadata() *meta.DetectionMetadata {
 }
 
 // Check evaluates whether the player is continuously spoofing OnGround=true
-// while their Y position is descending at speed.
+// while their Y position is descending at speed. Uses CommittedPos Y delta
+// (server-authoritative) as the falling signal.
 func (c *NoFallBCheck) Check(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
@@ -73,22 +65,23 @@ func (c *NoFallBCheck) Check(p *data.Player) (bool, string) {
 	}
 	// Server-applied knockback can push the player downward while they are
 	// genuinely on (or very near) the ground, causing GroundFallTicks to
-	// accumulate. Exempt during the knockback grace window to avoid falsely
-	// flagging players who were hit near the ground. Mirrors Oomph's motion-
-	// update exemption for externally applied velocities.
+	// accumulate. Exempt during the knockback grace window.
 	if p.HasKnockbackGrace() {
 		return false, ""
 	}
 
-	groundFallTicks, yDelta, onGround := p.GroundFallSnapshot()
+	groundFallTicks, _, onGround := p.GroundFallSnapshot()
 
 	// Only applicable when the client claims to be on the ground.
 	if !onGround {
 		return false, ""
 	}
 
+	// Use committed Y delta as the falling signal.
+	committedDeltaY := p.CommittedPos()[1] - p.PrevCommittedPos()[1]
+
 	if groundFallTicks >= noFallBMinSpoofTicks {
-		return true, fmt.Sprintf("ground_fall_ticks=%d y_delta=%.4f", groundFallTicks, yDelta)
+		return true, fmt.Sprintf("ground_fall_ticks=%d committed_deltaY=%.4f", groundFallTicks, committedDeltaY)
 	}
 	return false, ""
 }

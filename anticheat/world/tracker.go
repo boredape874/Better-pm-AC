@@ -14,10 +14,11 @@ import (
 // lock — checks outnumber world changes by orders of magnitude so this skew
 // favours the common path.
 type Tracker struct {
-	mu     sync.RWMutex
-	rng    cube.Range
-	air    uint32
-	chunks map[chunkKey]*dfchunk.Chunk
+	mu      sync.RWMutex
+	rng     cube.Range
+	air     uint32
+	chunks  map[chunkKey]*dfchunk.Chunk
+	history *historyStore
 }
 
 type chunkKey struct{ X, Z int32 }
@@ -37,9 +38,10 @@ func NewTrackerWithRange(r cube.Range) *Tracker {
 	// first time is a hard dependency on server/world being linked.
 	air, _ := dfchunk.StateToRuntimeID("minecraft:air", nil)
 	return &Tracker{
-		rng:    r,
-		air:    air,
-		chunks: map[chunkKey]*dfchunk.Chunk{},
+		rng:     r,
+		air:     air,
+		chunks:  map[chunkKey]*dfchunk.Chunk{},
+		history: newHistoryStore(),
 	}
 }
 

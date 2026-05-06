@@ -30,30 +30,8 @@ const flyBGraceTicks = 20
 const flyBMinViolTicks = 5
 
 // FlyBCheck (Fly/B) detects players whose Y velocity does not decrease at the
-// rate predicted by vanilla Bedrock gravity after the initial jump arc. This
-// catches float / anti-gravity cheats that keep the player airborne without
-// triggering the Fly/A hover threshold (which requires near-zero Y delta).
-//
-// Detection strategy (mirrors Oomph's gravity-simulation validation):
-//   - On each airborne tick, data.Player.UpdatePosition computes the predicted
-//     Y delta for this tick from the previous Y delta using the vanilla formula:
-//       predictedY = (prevYDelta − 0.08) × 0.98
-//     and increments GravViolTicks if the actual Y delta exceeds this prediction
-//     by more than the tolerance (0.03 b/tick).
-//   - Fly/B reads GravViolTicks from FlySnapshot and flags when it reaches
-//     flyBMinViolTicks after the flyBGraceTicks grace period.
-//
-// Exemptions (shared with Fly/A):
-//   - Creative mode
-//   - Gliding (elytra)
-//   - Slow Falling effect
-//   - Levitation effect
-//   - JumpBoost effect (extends grace period proportionally)
-//   - Active knockback grace
-//   - Recent water exit
-//   - Actively in water or crawling
-//   - HorizontalCollision/VerticalCollision flag (player is touching terrain;
-//     ladders/vines/walls prevent standard gravity from applying)
+// rate predicted by vanilla Bedrock gravity after the initial jump arc. Uses
+// CommittedPos vertical delta (server-authoritative) for gravity-bypass detection.
 //
 // Implements anticheat.Detection.
 type FlyBCheck struct {
@@ -81,7 +59,8 @@ func (c *FlyBCheck) DefaultMetadata() *meta.DetectionMetadata {
 }
 
 // Check evaluates whether the player's Y velocity is following the vanilla
-// gravity curve. Must be called after UpdatePosition.
+// gravity curve. Uses CommittedPos vertical delta (server-authoritative).
+// Must be called after UpdatePosition.
 func (c *FlyBCheck) Check(p *data.Player) (bool, string) {
 	if !c.cfg.Enabled {
 		return false, ""
@@ -105,7 +84,7 @@ func (c *FlyBCheck) Check(p *data.Player) (bool, string) {
 		return false, ""
 	}
 
-	airborne, yDelta, airTicks, _, gravViolTicks := p.FlySnapshot()
+	airborne, _, airTicks, _, gravViolTicks := p.FlySnapshot()
 	if !airborne {
 		return false, ""
 	}
@@ -116,8 +95,6 @@ func (c *FlyBCheck) Check(p *data.Player) (bool, string) {
 	}
 
 	// Exempt if the client reports horizontal or vertical terrain collision.
-	// This covers ladders, vines, walls, and other climbable/collidable surfaces
-	// where vanilla physics deviate significantly from free-fall gravity.
 	if p.HasTerrainCollision() {
 		return false, ""
 	}
@@ -131,8 +108,10 @@ func (c *FlyBCheck) Check(p *data.Player) (bool, string) {
 		return false, ""
 	}
 
+	// Use committed Y delta for gravity violation detection.
+	committedDeltaY := p.CommittedPos()[1] - p.PrevCommittedPos()[1]
 	if gravViolTicks >= flyBMinViolTicks {
-		return true, fmt.Sprintf("grav_viol_ticks=%d air_ticks=%d y_delta=%.4f", gravViolTicks, airTicks, yDelta)
+		return true, fmt.Sprintf("grav_viol_ticks=%d air_ticks=%d deltaY=%.4f", gravViolTicks, airTicks, committedDeltaY)
 	}
 	return false, ""
 }

@@ -110,8 +110,11 @@ func (c *ScaffoldCheck) Check(p *data.Player, blockPos mgl32.Vec3, face int32) (
 		return false, ""
 	}
 
-	// Compute the eye position (stored position is feet-level).
-	feetPos := p.CurrentPosition()
+	// Compute the eye position from the server-authoritative committed position
+	// (feet-level). Using CommittedPos instead of the client-reported
+	// CurrentPosition prevents scaffold cheats from spoofing their Y coordinate
+	// to pass the angle check.
+	feetPos := p.CommittedPos()
 	eyePos := mgl32.Vec3{feetPos[0], feetPos[1] + scaffoldEyeHeight, feetPos[2]}
 
 	// Compute the centre of the clicked face:

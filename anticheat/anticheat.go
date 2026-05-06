@@ -7,13 +7,19 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
+	"time"
 
+	"github.com/boredape874/Better-pm-AC/anticheat/ack"
 	"github.com/boredape874/Better-pm-AC/anticheat/checks/combat"
+	loginchk "github.com/boredape874/Better-pm-AC/anticheat/checks/login"
 	"github.com/boredape874/Better-pm-AC/anticheat/checks/movement"
 	pkt "github.com/boredape874/Better-pm-AC/anticheat/checks/packet"
+	worldchk "github.com/boredape874/Better-pm-AC/anticheat/checks/world"
 	"github.com/boredape874/Better-pm-AC/anticheat/data"
 	"github.com/boredape874/Better-pm-AC/anticheat/meta"
 	"github.com/boredape874/Better-pm-AC/anticheat/mitigate"
+	"github.com/boredape874/Better-pm-AC/anticheat/reconcile"
 	"github.com/boredape874/Better-pm-AC/config"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/google/uuid"
@@ -59,6 +65,14 @@ const (
 	keyTimer        = "Timer/A"
 	keyVelocity     = "Velocity/A"
 	keyScaffold     = "Scaffold/A"
+	keyNuker        = "Nuker/A"
+	keyFastBreak    = "FastBreak/A"
+	keyFastPlace    = "FastPlace/A"
+	keyTower        = "Tower/A"
+	keyInvalidBreak = "InvalidBreak/A"
+	keyProtocol     = "Protocol/A"
+	keyEditionFaker = "EditionFaker/A"
+	keyClientSpoof  = "ClientSpoof/A"
 )
 
 // playerDetections maps each check's canonical "Type/SubType" key to its
@@ -75,6 +89,33 @@ type Manager struct {
 	mu         sync.RWMutex
 	players    map[uuid.UUID]*data.Player
 	detections map[uuid.UUID]playerDetections
+	ackSystems map[uuid.UUID]*ack.System
+	loginData  map[uuid.UUID]data.LoginData
+
+	// Per-player stateful world check instances. Each player gets their own
+	// instance because these checks track per-player timing state.
+	nukerChecks     map[uuid.UUID]*worldchk.NukerACheck
+	fastBreakChecks map[uuid.UUID]*worldchk.FastBreakACheck
+	fastPlaceChecks map[uuid.UUID]*worldchk.FastPlaceACheck
+	towerChecks     map[uuid.UUID]*worldchk.TowerACheck
+
+	// Shared (config-only / stateless) world check prototypes.
+	// Used both as the registry entry for m.checks metadata and for direct calls.
+	nukerProto      *worldchk.NukerACheck
+	fastBreakProto  *worldchk.FastBreakACheck
+	fastPlaceProto  *worldchk.FastPlaceACheck
+	towerProto      *worldchk.TowerACheck
+	invalidBreakChk *worldchk.InvalidBreakACheck
+
+	lastTickCtx map[uuid.UUID]meta.TickContext // test-only mirror
+
+	// serverTick is the proxy-side monotonic clock advanced at 20 TPS by the
+	// goroutine started in StartTicker. Read with sync/atomic so checks can
+	// sample it without taking mu. tickStop signals the goroutine to exit;
+	// tickWG lets Stop wait for clean shutdown.
+	serverTick uint64
+	tickStop   chan struct{}
+	tickWG     sync.WaitGroup
 
 	// checks is the ordered registry of all registered Detection
 	// implementations. It is used by newPlayerDetections() to initialise
@@ -109,6 +150,11 @@ type Manager struct {
 	velocity     *movement.VelocityCheck
 	scaffold     *movement.ScaffoldCheck
 
+	// Shared (stateless) login check instances.
+	protocolChk     *loginchk.ProtocolACheck
+	editionFakerChk *loginchk.EditionFakerACheck
+	clientSpoofChk  *loginchk.ClientSpoofACheck
+
 	// KickFunc is called when a player should be disconnected. It is also
 	// the kick hook for the internal mitigate.Dispatcher built on demand
 	// inside handleViolation. Nil → dry-run (log only). Used to adapt the
@@ -120,16 +166,45 @@ type Manager struct {
 	// the proxy layer during Phase 5a integration.
 	RubberbandFunc   mitigate.RubberbandFunc
 	ServerFilterFunc mitigate.ServerFilterFunc
+
+	// corrector dispatches position-correction packets to clients when the
+	// reconciler produces an OutcomeSnap verdict. Initialised to a no-op
+	// Corrector in NewManager; actual packet wiring comes in T2.6.
+	corrector *mitigate.Corrector
+
+	// onMoveWarnOnce ensures that a single deprecation warning is emitted the
+	// first time OnMove is called. OnMove is superseded by the OnInput /
+	// PlayerAuthInput path and is preserved only for legacy compatibility with
+	// non-authoritative client configurations.
+	onMoveWarnOnce sync.Once
 }
 
 // NewManager creates a Manager ready to process packets.
 func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 	m := &Manager{
-		cfg:        cfg,
-		log:        log,
-		players:    make(map[uuid.UUID]*data.Player),
-		detections: make(map[uuid.UUID]playerDetections),
-		speed:        movement.NewSpeedCheck(cfg.Speed),
+		cfg:              cfg,
+		log:              log,
+		players:          make(map[uuid.UUID]*data.Player),
+		detections:       make(map[uuid.UUID]playerDetections),
+		ackSystems:       make(map[uuid.UUID]*ack.System),
+		loginData:        make(map[uuid.UUID]data.LoginData),
+		nukerChecks:     make(map[uuid.UUID]*worldchk.NukerACheck),
+		fastBreakChecks: make(map[uuid.UUID]*worldchk.FastBreakACheck),
+		fastPlaceChecks: make(map[uuid.UUID]*worldchk.FastPlaceACheck),
+		towerChecks:     make(map[uuid.UUID]*worldchk.TowerACheck),
+		// Shared prototypes: used for metadata registration in m.checks.
+		// Per-player stateful instances allocated in AddPlayer.
+		nukerProto:      worldchk.NewNukerACheck(cfg.Nuker),
+		fastBreakProto:  worldchk.NewFastBreakACheck(cfg.FastBreak),
+		fastPlaceProto:  worldchk.NewFastPlaceACheck(cfg.FastPlace),
+		towerProto:      worldchk.NewTowerACheck(cfg.Tower),
+		invalidBreakChk: worldchk.NewInvalidBreakACheck(cfg.InvalidBreak),
+		protocolChk:     loginchk.NewProtocolACheck(cfg.Protocol),
+		editionFakerChk:  loginchk.NewEditionFakerACheck(cfg.EditionFaker),
+		clientSpoofChk:   loginchk.NewClientSpoofACheck(cfg.ClientSpoof),
+		lastTickCtx:      make(map[uuid.UUID]meta.TickContext),
+		corrector:        mitigate.NewCorrector(nil), // no-op until T2.6 wires the packet hook
+		speed:            movement.NewSpeedCheck(cfg.Speed),
 		speedB:       movement.NewSpeedBCheck(cfg.SpeedB),
 		fly:          movement.NewFlyCheck(cfg.Fly),
 		noFall:       movement.NewNoFallCheck(cfg.NoFall),
@@ -171,6 +246,11 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		m.timer,
 		m.velocity,
 		m.scaffold,
+		// γ.6 world checks (prototypes used for metadata registration only).
+		m.nukerProto, m.fastBreakProto, m.fastPlaceProto, m.towerProto,
+		m.invalidBreakChk,
+		// γ.6 login checks (stateless — shared instances).
+		m.protocolChk, m.editionFakerChk, m.clientSpoofChk,
 	}
 	return m
 }
@@ -192,6 +272,12 @@ func (m *Manager) AddPlayer(id uuid.UUID, username string) {
 	defer m.mu.Unlock()
 	m.players[id] = data.NewPlayer(id, username)
 	m.detections[id] = m.newPlayerDetections()
+	m.ackSystems[id] = ack.NewSystem()
+	// Allocate per-player stateful world check instances.
+	m.nukerChecks[id] = worldchk.NewNukerACheck(m.cfg.Nuker)
+	m.fastBreakChecks[id] = worldchk.NewFastBreakACheck(m.cfg.FastBreak)
+	m.fastPlaceChecks[id] = worldchk.NewFastPlaceACheck(m.cfg.FastPlace)
+	m.towerChecks[id] = worldchk.NewTowerACheck(m.cfg.Tower)
 	m.log.Info("player joined", "uuid", id, "username", username)
 }
 
@@ -199,8 +285,64 @@ func (m *Manager) AddPlayer(id uuid.UUID, username string) {
 func (m *Manager) RemovePlayer(id uuid.UUID) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if sys := m.ackSystems[id]; sys != nil {
+		sys.PurgeActions()
+	}
+	delete(m.ackSystems, id)
 	delete(m.players, id)
 	delete(m.detections, id)
+	delete(m.lastTickCtx, id)
+	delete(m.loginData, id)
+	delete(m.nukerChecks, id)
+	delete(m.fastBreakChecks, id)
+	delete(m.fastPlaceChecks, id)
+	delete(m.towerChecks, id)
+}
+
+// OnLogin stores the login data and runs all login checks.
+// Called by the proxy layer immediately after the Login packet is processed.
+func (m *Manager) OnLogin(id uuid.UUID, ld data.LoginData) {
+	m.mu.Lock()
+	m.loginData[id] = ld
+	m.mu.Unlock()
+
+	p := m.getPlayer(id)
+	det := m.getDet(id)
+	if p == nil || det == nil {
+		// Player may not be fully registered yet; store data and return.
+		return
+	}
+
+	const loginTick = int64(0)
+
+	// Protocol/A
+	if flagged, info := m.protocolChk.Check(ld); flagged {
+		if det[keyProtocol].Fail(loginTick) {
+			m.handleViolation(p, m.protocolChk, det[keyProtocol], info)
+		}
+	}
+
+	// EditionFaker/A
+	if flagged, info := m.editionFakerChk.Check(ld); flagged {
+		if det[keyEditionFaker].Fail(loginTick) {
+			m.handleViolation(p, m.editionFakerChk, det[keyEditionFaker], info)
+		}
+	}
+
+	// ClientSpoof/A
+	if flagged, info := m.clientSpoofChk.Check(ld); flagged {
+		if det[keyClientSpoof].Fail(loginTick) {
+			m.handleViolation(p, m.clientSpoofChk, det[keyClientSpoof], info)
+		}
+	}
+}
+
+// GetLoginData returns the LoginData stored for the player and whether it exists.
+func (m *Manager) GetLoginData(id uuid.UUID) (data.LoginData, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ld, ok := m.loginData[id]
+	return ld, ok
 }
 
 func (m *Manager) getPlayer(id uuid.UUID) *data.Player {
@@ -257,8 +399,67 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 		return
 	}
 
+	p.SetClaimedPos(pos)
+	p.SetLastClientTick(tick)
+
+	sTick := atomic.LoadUint64(&m.serverTick)
+	ctx := meta.TickContext{ServerTick: sTick, ClientTick: tick}
+	m.mu.Lock()
+	m.lastTickCtx[id] = ctx
+	m.mu.Unlock()
+
+	// γ.2.3 — sim→reconcile→commit (feature-flagged).
+	// When ReconcileEnabled is true, we run the 3-branch Decide to determine
+	// which position to commit this tick. When the flag is off we fall back to
+	// committing the claimed position directly (transparent / no-op behaviour).
+	if m.cfg.Authority.ReconcileEnabled {
+		m.mu.RLock()
+		ackSys := m.ackSystems[id]
+		m.mu.RUnlock()
+		var hasPending bool
+		if ackSys != nil {
+			hasPending = ackSys.PendingActionsCount() > 0
+		}
+		claimed := pos
+		expected := p.ExpectedPos()
+		result := reconcile.Decide(reconcile.Input{
+			Claimed:       claimed,
+			Expected:      expected,
+			HasPendingAck: hasPending,
+			Tolerance:     0.5,
+		})
+		p.Commit(result.Committed)
+		p.SetExpectedPos(result.Committed)
+		switch result.Outcome {
+		case reconcile.OutcomeAccept:
+			reconcile.IncAccept()
+		case reconcile.OutcomePending:
+			reconcile.IncPending()
+			// Resolve the ack action for this tick pair so the ack system can
+			// track whether the client's claimed delta matches the expected correction.
+			if ackSys != nil {
+				actualDelta := claimed.Sub(expected)
+				matched, _ := ackSys.Resolve(ack.Key{ServerTick: ctx.ServerTick, ClientTick: ctx.ClientTick}, actualDelta)
+				m.log.Debug("reconcile pending: ack resolve",
+					"player", id,
+					"serverTick", ctx.ServerTick,
+					"clientTick", ctx.ClientTick,
+					"matched", matched,
+				)
+			}
+		case reconcile.OutcomeSnap:
+			reconcile.IncSnap()
+			m.corrector.Send(id, result.Committed)
+			p.RecordSnap()
+		}
+	} else {
+		p.Commit(pos)
+	}
+
 	// Record arrival time for Timer/A before any state updates.
 	p.RecordInputTime()
+	// Age the Phase/A snap-rate window by one tick.
+	p.TickSnapWindow()
 
 	// BadPacket/D: NaN/Infinity position — run before UpdatePosition so a
 	// poison packet cannot corrupt the player's position state.
@@ -435,7 +636,21 @@ func (m *Manager) OnInput(id uuid.UUID, tick uint64, pos mgl32.Vec3, onGround bo
 }
 
 // OnMove is called for legacy MovePlayer packets (non-authoritative clients).
+//
+// Deprecated: OnMove is superseded by OnInput (PlayerAuthInput) which provides
+// per-tick position, rotation, and input-flag data needed by all γ.3+ checks.
+// When MovementAuth is enabled the committed-pos pipeline runs exclusively
+// through OnInput; calling OnMove in that mode is a no-op after the warn-once
+// log so that mis-wired proxies degrade gracefully without silently skipping
+// detections.
 func (m *Manager) OnMove(id uuid.UUID, pos mgl32.Vec3, onGround bool) {
+	m.onMoveWarnOnce.Do(func() {
+		if m.log != nil {
+			m.log.Warn("OnMove is deprecated; use OnInput (PlayerAuthInput) instead — " +
+				"movement checks require per-tick committed-pos data not available via MovePlayer")
+		}
+	})
+
 	p := m.getPlayer(id)
 	det := m.getDet(id)
 	if p == nil || det == nil {
@@ -592,6 +807,90 @@ func (m *Manager) OnBlockPlace(id uuid.UUID, blockPos mgl32.Vec3, face int32) {
 	} else {
 		det[keyScaffold].Pass(0.3)
 	}
+
+	// FastPlace/A: placement rate check.
+	m.mu.RLock()
+	fpChk := m.fastPlaceChecks[id]
+	twrChk := m.towerChecks[id]
+	m.mu.RUnlock()
+
+	if fpChk != nil {
+		if flagged, info := fpChk.RecordPlace(); flagged {
+			if det[keyFastPlace].Fail(tick) {
+				m.handleViolation(p, m.fastPlaceProto, det[keyFastPlace], info)
+			}
+		}
+	}
+
+	// Tower/A: a place-below event is when the placed block face is "Down" (0)
+	// or "Up" (1) at a block at/below the player's feet.
+	if twrChk != nil && face == 1 { // face 1 = Up = placing on top of block below
+		serverTick := atomic.LoadUint64(&m.serverTick)
+		if flagged, info := twrChk.OnPlaceBelow(serverTick); flagged {
+			if det[keyTower].Fail(tick) {
+				m.handleViolation(p, m.towerProto, det[keyTower], info)
+			}
+		}
+	}
+}
+
+// OnBlockBreak is called when a player completes breaking a block.
+// blockID is the numeric block ID of the broken block. pos is the block position.
+// startBreak should be called via OnStartBreak when the player begins mining.
+func (m *Manager) OnBlockBreak(id uuid.UUID, blockPos mgl32.Vec3, blockID uint32) {
+	p := m.getPlayer(id)
+	det := m.getDet(id)
+	if p == nil || det == nil {
+		return
+	}
+	tick := int64(p.SimFrame())
+
+	m.mu.RLock()
+	nkrChk := m.nukerChecks[id]
+	fbChk := m.fastBreakChecks[id]
+	m.mu.RUnlock()
+
+	// Nuker/A: multi-break rate.
+	if nkrChk != nil {
+		if flagged, info := nkrChk.RecordBreak(blockPos); flagged {
+			if det[keyNuker].Fail(tick) {
+				m.handleViolation(p, m.nukerProto, det[keyNuker], info)
+			}
+		}
+	}
+
+	// FastBreak/A: complete the break and evaluate timing.
+	if fbChk != nil {
+		if flagged, info := fbChk.OnBreakComplete(blockID); flagged {
+			if det[keyFastBreak].Fail(tick) {
+				m.handleViolation(p, m.fastBreakProto, det[keyFastBreak], info)
+			}
+		}
+	}
+}
+
+// OnStartBreak is called when a player begins mining a block. blockID is the
+// numeric ID of the block being mined, used by FastBreak/A to compute expected
+// mining time. Call this when the player first sends a start-break packet.
+func (m *Manager) OnStartBreak(id uuid.UUID, blockID uint32) {
+	m.mu.RLock()
+	fbChk := m.fastBreakChecks[id]
+	m.mu.RUnlock()
+	if fbChk != nil {
+		fbChk.OnStartBreak(blockID)
+	}
+}
+
+// OnJump notifies Tower/A that the player jumped. serverTick is the current
+// proxy server tick (from Manager.ServerTick()).
+func (m *Manager) OnJump(id uuid.UUID) {
+	serverTick := atomic.LoadUint64(&m.serverTick)
+	m.mu.RLock()
+	twrChk := m.towerChecks[id]
+	m.mu.RUnlock()
+	if twrChk != nil {
+		twrChk.OnJump(serverTick)
+	}
 }
 
 // handleViolation logs the violation with its detection context and routes the
@@ -634,3 +933,59 @@ func (m *Manager) handleViolation(p *data.Player, d Detection, md *DetectionMeta
 	disp := mitigate.NewDispatcherWithHooks(m.log, kick, m.RubberbandFunc, m.ServerFilterFunc)
 	disp.Apply(p.UUID.String(), d, md, nil)
 }
+
+// SetCorrector replaces the Manager's corrector with c. Call this after
+// NewManager to wire the actual packet-send implementation for reconcile Snaps.
+func (m *Manager) SetCorrector(c *mitigate.Corrector) {
+	if c != nil {
+		m.corrector = c
+	}
+}
+
+// CommittedPos returns the player's current committed position (thread-safe).
+// The proxy uses this to overwrite PlayerAuthInput.Position before forwarding
+// upstream, so the server always sees the reconciler-accepted position.
+func (m *Manager) CommittedPos(id uuid.UUID) mgl32.Vec3 {
+	if p := m.getPlayer(id); p != nil {
+		return p.CommittedPos()
+	}
+	return mgl32.Vec3{}
+}
+
+// ServerTick returns the current monotonic proxy tick. Read with sync/atomic.
+func (m *Manager) ServerTick() uint64 {
+	return atomic.LoadUint64(&m.serverTick)
+}
+
+// StartTicker boots the 20 TPS goroutine that advances ServerTick. Idempotent.
+func (m *Manager) StartTicker() {
+	if m.tickStop != nil {
+		return
+	}
+	m.tickStop = make(chan struct{})
+	m.tickWG.Add(1)
+	go func() {
+		defer m.tickWG.Done()
+		t := time.NewTicker(50 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				atomic.AddUint64(&m.serverTick, 1)
+			case <-m.tickStop:
+				return
+			}
+		}
+	}()
+}
+
+// Stop halts the ticker. Safe to call multiple times.
+func (m *Manager) Stop() {
+	if m.tickStop == nil {
+		return
+	}
+	close(m.tickStop)
+	m.tickWG.Wait()
+	m.tickStop = nil
+}
+

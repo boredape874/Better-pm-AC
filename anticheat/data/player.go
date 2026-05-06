@@ -68,6 +68,16 @@ type Player struct {
 	Velocity     mgl32.Vec3
 	LastVelocity mgl32.Vec3
 
+	// Dual-tick authoritative position triplet (γ.1+).
+	// claimedPos: from PlayerAuthInput.Position (unvalidated).
+	// expectedPos: sim.Step() output (truth).
+	// committedPos: per-tick accepted final pos; next tick's prev base.
+	claimedPos       mgl32.Vec3
+	expectedPos      mgl32.Vec3
+	committedPos     mgl32.Vec3
+	prevCommittedPos mgl32.Vec3
+	lastClientTick   uint64
+
 	// Airborne state counters (used by Fly/A)
 	// AirTicks counts consecutive packets where the player is airborne.
 	// Mirroring Oomph's grace-period approach: we skip the fly check for
@@ -196,6 +206,14 @@ type Player struct {
 	// player's spawn coordinates; we skip it to avoid Speed/A false positives
 	// on join (mirrors Oomph's exempt-on-spawn behaviour).
 	posInitialised bool
+
+	// SnapCount tracks how many times the reconciler issued an OutcomeSnap in
+	// the last snapCountWindow ticks. Phase/A uses this under MovementAuth: if
+	// the reconciler snapped the player more than snapCountThreshold times in
+	// the window it means the client was consistently reporting bad positions,
+	// which is a reliable signal of phase/teleport cheating.
+	SnapCount       int
+	snapCountWindow int // ticks remaining in the current snap-rate window
 
 	// latency is the round-trip time between the client and this proxy,
 	// measured by gophertunnel and updated each PlayerAuthInput packet.
@@ -455,6 +473,39 @@ func (p *Player) CurrentPosition() mgl32.Vec3 {
 	defer p.mu.RUnlock()
 	return p.Position
 }
+
+// SetClaimedPos records the client-claimed position from PlayerAuthInput.
+// Caller is the Manager; checks must consume CommittedPos() instead.
+func (p *Player) SetClaimedPos(v mgl32.Vec3) { p.claimedPos = v }
+
+// ClaimedPos returns the most-recent client-claimed position.
+func (p *Player) ClaimedPos() mgl32.Vec3 { return p.claimedPos }
+
+// SetExpectedPos records the sim-computed expected position. Truth.
+func (p *Player) SetExpectedPos(v mgl32.Vec3) { p.expectedPos = v }
+
+// ExpectedPos returns the sim-computed expected position for the current tick.
+func (p *Player) ExpectedPos() mgl32.Vec3 { return p.expectedPos }
+
+// Commit promotes a position to the per-tick accepted state, rolling the
+// previous committed pos into prevCommittedPos. Called by reconciliation
+// once per tick, never directly by checks.
+func (p *Player) Commit(v mgl32.Vec3) {
+	p.prevCommittedPos = p.committedPos
+	p.committedPos = v
+}
+
+// CommittedPos is the per-tick accepted final position. Checks read this.
+func (p *Player) CommittedPos() mgl32.Vec3 { return p.committedPos }
+
+// PrevCommittedPos is the previous tick's committed position. Used for delta math.
+func (p *Player) PrevCommittedPos() mgl32.Vec3 { return p.prevCommittedPos }
+
+// LastClientTick returns the last PlayerAuthInput.Tick observed.
+func (p *Player) LastClientTick() uint64 { return p.lastClientTick }
+
+// SetLastClientTick records the client tick.
+func (p *Player) SetLastClientTick(t uint64) { p.lastClientTick = t }
 
 // SetInputMode stores the latest InputMode from PlayerAuthInput.
 func (p *Player) SetInputMode(mode uint32) {
@@ -844,6 +895,41 @@ func (p *Player) EntityPos(rid uint64) (mgl32.Vec3, bool) {
 	defer p.entityPosMu.RUnlock()
 	pos, ok := p.entityPos[rid]
 	return pos, ok
+}
+
+// snapRateWindowSize is the rolling window size (ticks) for snap-rate tracking.
+const snapRateWindowSize = 20
+
+// RecordSnap increments the snap counter and advances the rolling window.
+// Called by Manager.OnInput when reconcile.Decide returns OutcomeSnap.
+func (p *Player) RecordSnap() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.SnapCount++
+	if p.snapCountWindow <= 0 {
+		p.snapCountWindow = snapRateWindowSize
+	}
+}
+
+// TickSnapWindow should be called once per tick to age the snap counter window.
+// When the window expires, the counter resets for the next window.
+func (p *Player) TickSnapWindow() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.snapCountWindow > 0 {
+		p.snapCountWindow--
+		if p.snapCountWindow == 0 {
+			p.SnapCount = 0
+		}
+	}
+}
+
+// SnapSnapshot returns the current snap count and the window size.
+// Used by Phase/A under MovementAuth to detect persistent position correction.
+func (p *Player) SnapSnapshot() (snapCount, windowSize int) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.SnapCount, snapRateWindowSize
 }
 
 // AddViolation increments the legacy violation counter and returns the new total.
