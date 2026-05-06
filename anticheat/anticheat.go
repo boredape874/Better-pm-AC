@@ -80,6 +80,7 @@ type Manager struct {
 	players    map[uuid.UUID]*data.Player
 	detections map[uuid.UUID]playerDetections
 	ackSystems map[uuid.UUID]*ack.System
+	loginData  map[uuid.UUID]data.LoginData
 
 	lastTickCtx map[uuid.UUID]meta.TickContext // test-only mirror
 
@@ -156,6 +157,7 @@ func NewManager(cfg config.AnticheatConfig, log *slog.Logger) *Manager {
 		players:      make(map[uuid.UUID]*data.Player),
 		detections:   make(map[uuid.UUID]playerDetections),
 		ackSystems:   make(map[uuid.UUID]*ack.System),
+		loginData:    make(map[uuid.UUID]data.LoginData),
 		lastTickCtx:  make(map[uuid.UUID]meta.TickContext),
 		corrector:    mitigate.NewCorrector(nil), // no-op until T2.6 wires the packet hook
 		speed:        movement.NewSpeedCheck(cfg.Speed),
@@ -236,6 +238,25 @@ func (m *Manager) RemovePlayer(id uuid.UUID) {
 	delete(m.players, id)
 	delete(m.detections, id)
 	delete(m.lastTickCtx, id)
+	delete(m.loginData, id)
+}
+
+// OnLogin stores the login data for the player with the given UUID. This
+// is called by the proxy layer immediately after the Login packet is
+// processed. Login checks (Protocol/A, EditionFaker/A, ClientSpoof/A)
+// read this via GetLoginData.
+func (m *Manager) OnLogin(id uuid.UUID, ld data.LoginData) {
+	m.mu.Lock()
+	m.loginData[id] = ld
+	m.mu.Unlock()
+}
+
+// GetLoginData returns the LoginData stored for the player and whether it exists.
+func (m *Manager) GetLoginData(id uuid.UUID) (data.LoginData, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ld, ok := m.loginData[id]
+	return ld, ok
 }
 
 func (m *Manager) getPlayer(id uuid.UUID) *data.Player {
