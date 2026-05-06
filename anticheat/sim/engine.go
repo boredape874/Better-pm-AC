@@ -75,6 +75,16 @@ var _ meta.SimEngine = (*Engine)(nil)
 // thin POD struct — see effects.go for the field semantics.
 type Effects = effectContext
 
+// FluidKind identifies the type of fluid the player is submerged in.
+// FluidNone means the player is not in a fluid.
+type FluidKind uint8
+
+const (
+	FluidNone  FluidKind = 0
+	FluidWater FluidKind = 1
+	FluidLava  FluidKind = 2
+)
+
 // StepInput is the immutable input to the deterministic single-tick simulator.
 // All physics state needed for one tick must arrive in this struct — Step()
 // must not read any package-level globals. This is what makes property-based
@@ -89,8 +99,11 @@ type StepInput struct {
 	Sprint       bool
 	Sneak        bool
 	Jump         bool
-	InLiquid     bool // γ.5 — currently ignored by Step()
-	OnClimbable  bool // γ.5 — currently ignored by Step()
+	InLiquid     bool      // γ.5 — set automatically when Fluid != FluidNone
+	Fluid        FluidKind // γ.5.1 — FluidNone/FluidWater/FluidLava
+	OnClimbable  bool      // γ.5 — currently ignored by Step()
+	BubbleUp     bool      // γ.5.2 — bubble column pushing upward
+	BubbleDown   bool      // γ.5.2 — bubble column pulling downward
 }
 
 // StepOutput is the result of one simulation tick.
@@ -119,6 +132,9 @@ type StepOutput struct {
 // NOT replicate that guard because UsingItem is not yet on StepInput. γ.5
 // plumbs it.
 func Step(in StepInput) StepOutput {
+	// Fluid takes precedence: InLiquid is true whenever Fluid != FluidNone.
+	inLiquid := in.InLiquid || in.Fluid != FluidNone
+
 	v := in.Velocity
 	if !in.OnGround {
 		v = gravityVelOnly(v, in.Effects)
@@ -127,6 +143,26 @@ func Step(in StepInput) StepOutput {
 		v = jumpVelOnly(v, in.Effects, in.Sprint)
 	}
 	v = walkVelOnly(v, in.InputForward, in.InputStrafe, in.Sprint, in.Sneak, in.OnGround, in.Effects)
+
+	// Apply fluid drag (γ.5.1).
+	if inLiquid {
+		drag := WaterDrag
+		if in.Fluid == FluidLava {
+			drag = LavaDrag
+		}
+		v[0] *= drag
+		v[1] *= drag
+		v[2] *= drag
+	}
+
+	// Apply bubble column forces (γ.5.2).
+	if in.BubbleUp {
+		v[1] += BubbleColumnUpForce
+	}
+	if in.BubbleDown {
+		v[1] -= BubbleColumnDownForce
+	}
+
 	v = frictionVelOnly(v, in.OnGround)
 	pos := in.PrevPos.Add(v)
 	return StepOutput{ExpectedPos: pos, Velocity: v}

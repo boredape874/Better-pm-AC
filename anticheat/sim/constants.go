@@ -48,6 +48,10 @@ const (
 	ClimbUp         float32 = 0.20
 	ClimbDown       float32 = 0.15
 	ScaffoldClimbUp float32 = 0.50
+
+	// Bubble columns (γ.5.2)
+	BubbleColumnUpForce   float32 = 0.04
+	BubbleColumnDownForce float32 = 0.06
 )
 
 // Effect IDs for the SimInput.Effects map. Values match Bedrock protocol.
